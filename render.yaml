@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: torbox-stremio-addon
+    env: node
+    region: oregon
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        generateValue: true
+      - key: HOST
+        value: 0.0.0.0
+      - key: TORBOX_API_KEY
+        sync: false
+      - key: P2P_MODE
+        value: false
+      - key: ENABLED_SCRAPERS
+        value: 1337x,thepiratebay,torrentgalaxy,rarbg,yts,eztv
+      - key: CACHE_TTL
+        value: 3600
+      - key: SCRAPER_TIMEOUT
+        value: 10000
