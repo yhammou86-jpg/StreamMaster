@@ -16,10 +16,10 @@ const MAX_SAMPLES = 40;
 const stats = new Map();
 
 function blank(id) {
-  return { id, ok: 0, fail: 0, empty: 0, results: 0, totalMs: 0, lastOk: 0, lastError: '' };
+  return { id, ok: 0, fail: 0, empty: 0, results: 0, totalMs: 0, lastOk: 0, lastError: '', lastReason: null };
 }
 
-function record(id, { ok, ms, count, error }) {
+function record(id, { ok, ms, count, error, reason }) {
   let s = stats.get(id);
   if (!s) {
     s = blank(id);
@@ -33,7 +33,8 @@ function record(id, { ok, ms, count, error }) {
     if (!count) s.empty += 1;
   } else {
     s.fail += 1;
-    s.lastError = String(error || 'failed').slice(0, 120);
+    s.lastError = String(error || 'failed').slice(0, 160);
+    s.lastReason = reason || 'error';
   }
   if (s.ok + s.fail > MAX_SAMPLES) {
     // Decay so a provider that recovered is not punished forever.
@@ -58,6 +59,7 @@ function snapshot() {
       successRate: calls ? Math.round((s.ok / calls) * 100) : null,
       lastOk: s.lastOk || null,
       lastError: s.lastError || null,
+      lastReason: s.lastReason || null,
     });
   }
   return out.sort((a, b) => (b.successRate ?? -1) - (a.successRate ?? -1));

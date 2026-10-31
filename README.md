@@ -131,6 +131,7 @@ Everything below is set through `/configure` and encoded into the addon URL.
 | `uncached` | Allow the service to fetch uncached torrents on play (slow first play) |
 | `preferEfficient` | Slight boost for x265 / AV1 encodes |
 | `lang` | Preferred language tag, e.g. `ita` |
+| `proxy` | Fetch sources through a proxy. Prefix (`https://w.dev/?url=`) or template (`https://w.dev/f/{url}`). Fixes TLS-fingerprint blocks. |
 | `torznab` | `{ url, key }` — Jackett / Prowlarr / any Newznab feed |
 | `prowlarr` | `{ url, key }` — Prowlarr's aggregate JSON API |
 
@@ -168,9 +169,9 @@ async function resolve(key, hash, hint, opts) -> string    // a direct HTTPS URL
 | **Knaben** | 1 | Meta-search over dozens of trackers, with *live* seeders. Carries most of the weight. |
 | **YTS** | 1 | Movies, small high-quality encodes. IMDb-addressable. |
 | **EZTV** | 1 | Series, IMDb-addressable, so episode matching is exact. |
-| **SolidTorrents** | 1 | DHT index, clean JSON API. |
+| **BitSearch** | 1 | DHT index, clean JSON API. Formerly SolidTorrents — the old domain now 301s here. |
 | **Nyaa** | 1 | Anime, via RSS. |
-| **The Pirate Bay** | 2 | Via `apibay.org`. Frequently challenged by Cloudflare. |
+| **The Pirate Bay** | 2 | Via `apibay.org`. Blocked for server-side clients by TLS fingerprinting — needs a proxy. Knaben already indexes TPB, so you rarely lose anything. |
 | **AniTosho** | 2 | Anime mirrors. |
 | **RARBG** | 2 | Off by default — heavily rate limited. |
 | **Torznab** | 3 | **Jackett, Prowlarr, or any Newznab feed.** One URL can unlock hundreds of indexers. |
@@ -179,6 +180,59 @@ async function resolve(key, hash, hint, opts) -> string    // a direct HTTPS URL
 Providers fail independently. If Cloudflare blocks three of them from your region, the other seven
 still answer and the request still succeeds. Use **Test all sources** in step 2 to see exactly which
 ones work from your deployment.
+
+---
+
+## Troubleshooting a source that returns 0
+
+A source reporting `0` is not one problem. The probe classifies each failure, so you can tell them
+apart instead of guessing:
+
+| Reason | What it means | Fix |
+|---|---|---|
+| `cloudflare` | The site fingerprints the **TLS handshake** (JA3/JA4) and refuses non-browser clients. | Proxy, FlareSolverr, or Prowlarr. Headers will not help. |
+| `blocked` | A plain 403/401 with no bot-check markers. | IP or region ban, or the source now needs a key. |
+| `rate-limit` | 429, or 403 with `Retry-After`. | Back off; it works, just slowly. |
+| `missing` | 404 on the endpoint. | The API or domain changed. |
+| `timeout` | No response within the budget. | Slow host, or blocked at the network level. |
+| `empty` | Reached and answered, but had no matches. | **Working.** Keep it enabled. |
+| `parse` | Got HTML where JSON was expected. | Usually a challenge page in disguise. |
+
+### Why "HTTP 403 — Cloudflare" is often misdiagnosed
+
+Two cases came up while building this, and both looked identical from the outside:
+
+**1. It was a rename, not a block.** `solidtorrents.to` stopped being the real host. The probe saw a
+failure and blamed Cloudflare; the actual cause was a redirect to a new domain. The fix was to point
+at the new host — now `BitSearch`. Redirects are followed silently, so the failure is annotated with
+the host that *actually* failed:
+
+```
+Cloudflare bot check (after redirecting to bitsearch.eu) — TLS fingerprint, not headers.
+```
+
+**2. The same URL answers differently per client.** This is the tell that it really is fingerprinting:
+
+| Client → `apibay.org` | Result |
+|---|---|
+| `curl` (same IP, same User-Agent) | **200 OK**, real JSON |
+| Node `fetch` (same IP, same User-Agent) | **403**, `<title>Just a moment...</title>` |
+
+Same IP, same headers, different TLS stack. Setting Chrome's `ciphers` and `ecdhCurve` on
+`https.request` still returns 403. There is no server-side fix — the decision happens below HTTP.
+Use a proxy (field in step 2) or let Knaben cover that catalogue, since Knaben already indexes TPB.
+
+**Quick check for any suspect source:**
+
+```bash
+curl -sS -o /dev/null -D - -A "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+  (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36" "https://apibay.org/q.php?q=inception&cat=0" \
+  | grep -iE "^HTTP/|cf-mitigated|^location"
+```
+
+- `200` + JSON in the body → the host is fine; your runtime is being fingerprinted.
+- `403` + `cf-mitigated: challenge` → Cloudflare, needs a proxy.
+- `301` + `location:` → the domain moved. Follow it.
 
 ---
 

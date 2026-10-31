@@ -2,12 +2,25 @@
 
 /**
  * The Pirate Bay via apibay.org — the largest public catalogue, exposed as a
- * plain JSON array. Frequently behind a Cloudflare challenge; fails soft.
+ * plain JSON array.
+ *
+ * Reality check: apibay.org is behind a Cloudflare managed challenge that
+ * fingerprints the TLS handshake. A browser (or curl) passes; Node's fetch does
+ * not, and no header or cipher tweak changes that. So this provider is
+ * opportunistic by design — it will work when the challenge is relaxed or when
+ * a proxy is configured, and otherwise report `reason: 'cloudflare'`.
+ *
+ * TPB's catalogue is still covered when this fails: Knaben indexes it and
+ * reports it as "The Pirate Bay (proxy)" in its results.
  */
 
-const { json } = require('../http');
+const { json, mostInformative } = require('../http');
 
-const API = 'https://apibay.org/q.php';
+const MIRRORS = [
+  'https://apibay.org',
+  'https://apibay.net',
+  'https://thepiratebay.org/apibay',
+];
 
 module.exports = {
   id: 'apibay',
@@ -21,10 +34,33 @@ module.exports = {
         : `${ctx.title} ${ctx.year || ''}`.trim();
     if (!q.trim()) return [];
 
-    // cat 200 = Video, 205 = TV shows, 207 = HD Movies
-    const data = await json(`${API}?q=${encodeURIComponent(q)}&cat=0`, { timeout: 5000 });
-    if (!Array.isArray(data)) return [];
-    if (data.length === 1 && String(data[0].name || '').toLowerCase().includes('no results')) {
+    let data = null;
+    const errors = [];
+
+    for (const host of MIRRORS) {
+      try {
+        data = await json(`${host}/q.php?q=${encodeURIComponent(q)}&cat=0`, {
+          timeout: 2200,
+          proxy: ctx.cfg.proxy,
+        });
+        if (Array.isArray(data)) break;
+      } catch (err) {
+        errors.push(err);
+        data = null;
+        // A TLS-fingerprint challenge is a property of the operator, not the
+        // domain name. Retrying sibling mirrors only burns the time budget and
+        // downgrades a precise diagnosis into a useless `timeout`.
+        if (err.reason === 'cloudflare') break;
+      }
+    }
+
+    if (!Array.isArray(data)) {
+      // Report the most specific failure, not whichever mirror happened to be last.
+      const err = mostInformative(errors);
+      if (err) throw err;
+      return [];
+    }
+    if (data.length === 1 && /no results returned/i.test(String(data[0].name || ''))) {
       return [];
     }
 

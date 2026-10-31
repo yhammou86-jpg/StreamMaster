@@ -11,7 +11,7 @@ const PROVIDER_IDS = [
   'knaben',
   'yts',
   'eztv',
-  'solid',
+  'bitsearch',
   'nyaa',
   'apibay',
   'animetosho',
@@ -34,7 +34,7 @@ const DEFAULTS = {
     knaben: true,
     yts: true,
     eztv: true,
-    solid: true,
+    bitsearch: true,
     nyaa: true,
     apibay: true,
     animetosho: true,
@@ -51,6 +51,7 @@ const DEFAULTS = {
   uncached: false,
   preferEfficient: true,
   lang: '',
+  proxy: '',
   prowlarr: { url: '', key: '' },
   torznab: { url: '', key: '' },
 };
@@ -87,12 +88,19 @@ function normalize(raw) {
     uncached: bool(src.uncached, DEFAULTS.uncached),
     preferEfficient: bool(src.preferEfficient, DEFAULTS.preferEfficient),
     lang: typeof src.lang === 'string' ? src.lang.slice(0, 12) : '',
+    proxy: typeof src.proxy === 'string' ? src.proxy.trim().slice(0, 300) : '',
     prowlarr: { url: '', key: '' },
     torznab: { url: '', key: '' },
   };
 
+  // `solid` was the original SolidTorrents provider id. It became BitSearch, so
+  // an old encoded URL still carries `providers.solid` — honour it.
+  const solidAlias =
+    src.providers && typeof src.providers === 'object' ? src.providers.solid : undefined;
+
   for (const id of PROVIDER_IDS) {
-    const v = src.providers && src.providers[id];
+    const explicit = src.providers && src.providers[id];
+    const v = explicit !== undefined ? explicit : id === 'bitsearch' ? solidAlias : undefined;
     cfg.providers[id] = bool(v, DEFAULTS.providers[id]);
   }
 

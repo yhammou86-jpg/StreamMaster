@@ -14,8 +14,15 @@ const { scoreItem, passesFilters, sortItems } = require('./rank');
 const { withTimeout } = require('./http');
 const health = require('./health');
 
-/** Overall budget for scraping. Vercel Hobby allows 60s; we stay far below. */
-const DEFAULT_BUDGET_MS = 7000;
+/**
+ * Overall budget for scraping. Vercel Hobby allows 60s and the function is
+ * capped at 30s, but the client gives up long before that: Stremio and Nuvio
+ * both abandon a stream request that drags. 8.5s leaves room for the metadata
+ * lookup and ranking while still finishing inside the client's patience, and
+ * it is loose enough that a slow-but-working source is not cut off and reported
+ * as an empty result.
+ */
+const DEFAULT_BUDGET_MS = 8500;
 
 function normalizeOne(raw, ctx) {
   if (!raw || !raw.infoHash) return null;
@@ -73,8 +80,13 @@ async function runProvider(provider, ctx, deadline) {
     health.record(provider.id, { ok: true, ms: Date.now() - started, count: list.length });
     return { id: provider.id, rows: list };
   } catch (err) {
-    health.record(provider.id, { ok: false, ms: Date.now() - started, error: err.message });
-    return { id: provider.id, rows: [] };
+    health.record(provider.id, {
+      ok: false,
+      ms: Date.now() - started,
+      error: err.message,
+      reason: err.reason,
+    });
+    return { id: provider.id, rows: [], reason: err.reason, hint: err.hint, error: err.message };
   }
 }
 
@@ -126,43 +138,107 @@ async function gather(cfg, meta, opts = {}) {
 }
 
 /**
+ * Run `fn` over `items` with at most `limit` in flight.
+ *
+ * Diagnostics must not fire twenty requests at once. A burst saturates the
+ * connection pool, every source times out, and the panel reports a wall of
+ * false negatives — which is worse than no diagnostic at all.
+ */
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      out[index] = await fn(items[index], index);
+    }
+  });
+  await Promise.all(workers);
+  return out;
+}
+
+/** Generous per-source budget: this is a diagnostic, not a stream request. */
+const PROBE_TIMEOUT_MS = 7000;
+const PROBE_CONCURRENCY = 5;
+
+/** Whole-probe wall clock. Must stay under the 30s serverless limit. */
+const PROBE_BUDGET_MS = 26000;
+
+/**
  * Diagnostics: run every enabled provider against a fixed, well-seeded title and
  * report what each one returned. Powers the "Test sources" panel.
+ *
+ * Each source gets its own timeout, but every timeout is also clamped to the
+ * time left in the overall budget. A slow source late in the run is reported as
+ * `timeout` rather than silently blowing through the function limit.
  */
-async function probe(cfg, meta) {
+async function probe(cfg, meta, opts = {}) {
   const active = ALL.filter((p) => cfg.providers[p.id] && p.kinds.includes(meta.kind));
   const ctx = { ...meta, cfg };
-  const deadline = Date.now() + 9000;
+  const timeout = opts.timeout || PROBE_TIMEOUT_MS;
+  const limit = opts.concurrency || PROBE_CONCURRENCY;
+  const deadline = opts.deadline || Date.now() + PROBE_BUDGET_MS;
 
-  const settled = await Promise.allSettled(active.map((p) => runProvider(p, ctx, deadline)));
-  const out = [];
+  const results = await mapLimit(active, limit, async (provider) => {
+    const started = Date.now();
+    const left = deadline - started;
 
-  for (let i = 0; i < active.length; i += 1) {
-    const provider = active[i];
-    const result = settled[i];
-    const rows = result.status === 'fulfilled' ? result.value.rows : [];
-    const stat = health.snapshot().find((s) => s.id === provider.id);
-    out.push({
-      id: provider.id,
-      name: provider.name,
-      count: rows.length,
-      ok: rows.length > 0,
-      avgMs: stat ? stat.avgMs : 0,
-      successRate: stat ? stat.successRate : null,
-      error: rows.length ? null : stat && stat.lastError ? stat.lastError : 'no results',
-    });
-  }
+    if (left < 1200) {
+      return {
+        provider,
+        rows: [],
+        reason: 'skipped',
+        hint: 'Ran out of time budget before this source was tested. Try again.',
+        ms: 0,
+      };
+    }
 
-  return out.sort((a, b) => b.count - a.count);
+    try {
+      const rows = await withTimeout(provider.search(ctx), Math.min(timeout, left), provider.id);
+      const list = Array.isArray(rows) ? rows : [];
+      health.record(provider.id, { ok: true, ms: Date.now() - started, count: list.length });
+      return { provider, rows: list, ms: Date.now() - started };
+    } catch (err) {
+      health.record(provider.id, {
+        ok: false,
+        ms: Date.now() - started,
+        error: err.message,
+        reason: err.reason,
+      });
+      return {
+        provider,
+        rows: [],
+        reason: err.reason,
+        hint: err.hint,
+        ms: Date.now() - started,
+      };
+    }
+  });
+
+  return results.map((r) => {
+    const reason = r.reason || (r.rows.length ? 'ok' : 'empty');
+    return {
+      id: r.provider.id,
+      name: r.provider.name,
+      count: r.rows.length,
+      ok: r.rows.length > 0,
+      reason,
+      hint: r.hint || '',
+      avgMs: r.ms,
+    };
+  }).sort((a, b) => b.count - a.count);
 }
 
 /**
  * Diagnostics across both media kinds.
  *
  * A provider may only support movies or only series, so a single query would
- * leave half the list untested. Run one of each and merge by provider.
+ * leave half the list untested. But testing every source twice doubles the load
+ * for nothing, so the series pass only re-tests sources that found nothing as a
+ * movie. A source that already answered does not need a second opinion.
  */
-async function probeAll(cfg) {
+async function probeAll(cfg, opts = {}) {
   const movie = {
     kind: 'movie',
     imdbId: 'tt1375666',
@@ -184,18 +260,45 @@ async function probeAll(cfg) {
     genres: ['Crime'],
   };
 
-  const [a, b] = await Promise.all([probe(cfg, movie), probe(cfg, series)]);
-  const merged = new Map();
+  const deadline = opts.deadline || Date.now() + (opts.budget || PROBE_BUDGET_MS);
+  const passOpts = { ...opts, deadline };
 
-  for (const row of [...a, ...b]) {
+  const movieRows = await probe(cfg, movie, passOpts);
+  const seen = new Set(movieRows.map((r) => r.id));
+
+  // Re-test with a series when the movie pass found nothing — and always test
+  // providers that are series-only, since they never appear in the movie pass
+  // at all and would otherwise vanish from the report.
+  const retry = new Set(movieRows.filter((r) => r.count === 0).map((r) => r.id));
+  for (const provider of ALL) {
+    if (!cfg.providers[provider.id]) continue;
+    if (provider.kinds.includes('series') && !seen.has(provider.id)) retry.add(provider.id);
+  }
+
+  let seriesRows = [];
+  // Only spend the remaining budget on a second pass if there is budget left.
+  if (retry.size && deadline - Date.now() > 2000) {
+    seriesRows = (await probe(cfg, series, passOpts)).filter((r) => retry.has(r.id));
+  }
+
+  const merged = new Map(movieRows.map((r) => [r.id, { ...r }]));
+
+  for (const row of seriesRows) {
     const cur = merged.get(row.id);
     if (!cur) {
       merged.set(row.id, { ...row });
-    } else {
-      cur.count += row.count;
-      cur.ok = cur.count > 0;
-      cur.avgMs = Math.max(cur.avgMs, row.avgMs);
-      if (row.count > 0) cur.error = null;
+      continue;
+    }
+    cur.count += row.count;
+    cur.ok = cur.count > 0;
+    cur.avgMs = Math.max(cur.avgMs, row.avgMs);
+    // A source that found nothing as a movie but answered for a series works.
+    if (row.count > 0) {
+      cur.reason = 'ok';
+      cur.hint = '';
+    } else if (!cur.hint && row.hint) {
+      cur.reason = row.reason;
+      cur.hint = row.hint;
     }
   }
 

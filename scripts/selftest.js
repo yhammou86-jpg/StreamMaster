@@ -86,6 +86,17 @@ test('drops unknown providers and resolutions', () => {
   assert.deepStrictEqual(cfg.res, ['4k', '1080p', '720p', '480p']);
 });
 
+test('maps a legacy solid flag onto bitsearch', () => {
+  assert.strictEqual(normalize({ providers: { solid: false } }).providers.bitsearch, false);
+  assert.strictEqual(normalize({ providers: { bitsearch: true, solid: false } }).providers.bitsearch, true);
+});
+
+test('carries a proxy through normalisation', () => {
+  assert.strictEqual(normalize({}).proxy, '');
+  assert.strictEqual(normalize({ proxy: '  https://p.test/?url=  ' }).proxy, 'https://p.test/?url=');
+  assert.strictEqual(normalize({ proxy: 123 }).proxy, '');
+});
+
 test('disables debrid-only mode without a key', () => {
   const cfg = normalize({ mode: 'debrid', key: '' });
   assert.strictEqual(cfg.mode, 'hybrid');
@@ -189,6 +200,67 @@ test('config endpoint encodes a blob', async () => {
   const body = JSON.parse(res.body);
   assert.strictEqual(body.ok, true);
   assert.ok(decode(body.blob));
+});
+
+/* --------------------------------------------------------- diagnostics */
+console.log('\ndiagnostics');
+
+const { classify, mostInformative } = require('../src/http');
+
+test('labels a Cloudflare challenge', () => {
+  const c = classify({
+    status: 403,
+    headers: { 'cf-mitigated': 'challenge', server: 'cloudflare' },
+    text: '<title>Just a moment...</title>',
+    requested: 'https://apibay.org/q.php',
+    url: 'https://apibay.org/q.php',
+  });
+  assert.strictEqual(c.reason, 'cloudflare');
+  assert.match(c.hint, /proxy|Prowlarr/i);
+});
+
+test('labels a bare 403 as blocked, not cloudflare', () => {
+  const c = classify({
+    status: 403,
+    headers: { server: 'nginx' },
+    text: 'Forbidden',
+    requested: 'https://x.test/a',
+    url: 'https://x.test/a',
+  });
+  assert.strictEqual(c.reason, 'blocked');
+});
+
+test('names the new host when a redirect precedes a failure', () => {
+  const c = classify({
+    status: 403,
+    headers: { 'cf-mitigated': 'challenge' },
+    text: '',
+    requested: 'https://solidtorrents.to/api',
+    url: 'https://bitsearch.eu/api',
+  });
+  assert.strictEqual(c.reason, 'cloudflare');
+  assert.match(c.hint, /bitsearch\.eu/, 'hint should blame the host that actually failed');
+});
+
+test('does not invent a redirect when a proxy was used', () => {
+  const c = classify({
+    status: 403,
+    headers: { server: 'nginx' },
+    text: '',
+    requested: 'https://x.test/a',
+    url: 'https://proxy.test/?url=x',
+    proxied: true,
+  });
+  assert.strictEqual(c.reason, 'blocked');
+  assert.doesNotMatch(c.hint, /redirecting/);
+});
+
+test('a specific reason outranks a timeout across mirrors', () => {
+  const cf = Object.assign(new Error('cf'), { reason: 'cloudflare' });
+  const to = Object.assign(new Error('timeout'), { reason: 'timeout' });
+  assert.strictEqual(mostInformative([cf, to]).reason, 'cloudflare');
+  assert.strictEqual(mostInformative([to, cf]).reason, 'cloudflare');
+  assert.strictEqual(mostInformative([]), null);
 });
 
 /* ---------------------------------------------------------------- live */

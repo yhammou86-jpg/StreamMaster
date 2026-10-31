@@ -158,6 +158,15 @@
   .prow .res{color:var(--dim);font-family:var(--mono);font-size:11px;margin-left:auto;text-align:right}
   .prow .err{color:#8A6A5E;font-size:10.5px;margin-left:auto;max-width:180px;overflow:hidden;
              text-overflow:ellipsis;white-space:nowrap}
+  .pitem{padding:9px 0;border-bottom:1px solid rgba(255,255,255,.045)}
+  .pitem:last-child{border-bottom:none}
+  .pitem .prow{border-bottom:none;padding:0}
+  .phint{font-size:10.5px;color:#8A7A6A;line-height:1.55;margin:5px 0 0 22px}
+  .reason{font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:6px;margin-left:auto;
+          text-transform:uppercase;letter-spacing:.04em;white-space:nowrap}
+  .reason.ok{background:rgba(95,208,138,.12);color:#7FD9A2}
+  .reason.warn{background:rgba(233,196,106,.12);color:#E9C46A}
+  .reason.bad{background:rgba(240,115,107,.12);color:#F0897F}
 
   /* ---------------- chips + sliders ---------------- */
   .chips{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:6px}
@@ -281,6 +290,20 @@
         <div class="hint">
           One endpoint here can unlock hundreds of private trackers. Paste the “Torznab Feed”
           URL from Jackett, or a Prowlarr indexer URL.
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">
+          <span>Proxy — optional, fixes Cloudflare-blocked sources</span>
+        </div>
+        <div class="input-wrap">
+          <input id="proxy" type="text" placeholder="https://your-worker.workers.dev/?url=" autocomplete="off" />
+        </div>
+        <div class="hint">
+          Some trackers fingerprint the TLS handshake and refuse server traffic — a
+          User-Agent will not help, only a different exit point will. Paste a CORS-style
+          proxy prefix, or a template containing <code>{url}</code>. Leave empty to fetch directly.
         </div>
       </div>
     </div>
@@ -415,7 +438,7 @@
     { id: 'knaben', name: 'Knaben', meta: 'Meta-search · 30+ trackers', tier: 1 },
     { id: 'yts', name: 'YTS', meta: 'Movies · small encodes', tier: 1 },
     { id: 'eztv', name: 'EZTV', meta: 'Series · IMDb exact', tier: 1 },
-    { id: 'solid', name: 'SolidTorrents', meta: 'DHT index', tier: 1 },
+    { id: 'bitsearch', name: 'BitSearch', meta: 'DHT index', tier: 1 },
     { id: 'nyaa', name: 'Nyaa', meta: 'Anime', tier: 1 },
     { id: 'apibay', name: 'The Pirate Bay', meta: 'Largest catalogue', tier: 2 },
     { id: 'animetosho', name: 'AniTosho', meta: 'Anime mirrors', tier: 2 },
@@ -434,7 +457,7 @@
     key: '',
     mode: 'hybrid',
     style: 'rich',
-    providers: { knaben: true, yts: true, eztv: true, solid: true, nyaa: true, apibay: true,
+    providers: { knaben: true, yts: true, eztv: true, bitsearch: true, nyaa: true, apibay: true,
                  animetosho: true, therarbg: false, prowlarr: false, torznab: false },
     res: ['4k', '1080p', '720p', '480p'],
     max: 40,
@@ -444,6 +467,7 @@
     cachedOnly: false,
     uncached: false,
     sort: 'quality',
+    proxy: '',
     prowlarr: { url: '', key: '' },
     torznab: { url: '', key: '' },
     client: 'stremio',
@@ -649,6 +673,7 @@
       cachedOnly: state.cachedOnly,
       uncached: state.uncached,
       sort: state.sort,
+      proxy: state.proxy,
       prowlarr: state.prowlarr,
       torznab: state.torznab
     };
@@ -718,18 +743,26 @@
         body: JSON.stringify({ action: 'probe', config: payload() })
       });
       const j = await res.json();
+      const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) =>
+        ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
       const rows = (j.sources || []).map((s) => {
-        const dot = s.count > 0 ? 'ok' : s.successRate === 0 ? 'bad' : 'warn';
+        // `reason` is classified server-side: cloudflare / blocked / rate-limit /
+        // missing / server / timeout / parse / network / empty / ok.
+        const kind = s.count > 0 ? 'ok' : s.reason === 'empty' ? 'warn' : 'bad';
+        const dot = kind === 'ok' ? 'ok' : kind === 'warn' ? 'warn' : 'bad';
         document.querySelectorAll('[data-dot="' + s.id + '"]').forEach((d) => {
           d.className = 'dot ' + dot;
         });
-        const right = s.count > 0
-          ? `<span class="res">${s.count} results · ${s.avgMs}ms</span>`
-          : s.successRate === 0
-            ? `<span class="err">${(s.error || 'blocked').slice(0, 40)}</span>`
-            : `<span class="res" style="color:var(--amber)">reachable · 0 matches</span>`;
-        return `<div class="prow"><span class="dot ${dot}"></span>
-          <span class="nm">${s.name}</span>${right}</div>`;
+        const label = s.count > 0
+          ? `${s.count} results · ${s.avgMs}ms`
+          : (s.reason || 'failed');
+        const hint = s.hint ? `<div class="phint">${esc(s.hint)}</div>` : '';
+        return `<div class="pitem">
+          <div class="prow"><span class="dot ${dot}"></span>
+            <span class="nm">${esc(s.name)}</span>
+            <span class="reason ${kind}">${esc(label)}</span>
+          </div>${hint}</div>`;
       }).join('');
 
       out.innerHTML = rows || '<div class="hint" style="margin:0">No sources enabled.</div>';
@@ -790,6 +823,11 @@
     });
     $('tzKey').addEventListener('input', (e) => {
       state.torznab.key = e.target.value.trim();
+      scheduleUpdate();
+    });
+
+    $('proxy').addEventListener('input', (e) => {
+      state.proxy = e.target.value.trim();
       scheduleUpdate();
     });
 
@@ -876,6 +914,7 @@
       state.cachedOnly = !!cfg.cachedOnly;
       state.uncached = !!cfg.uncached;
       state.sort = cfg.sort || state.sort;
+      state.proxy = cfg.proxy || '';
       state.torznab = cfg.torznab || state.torznab;
       state.prowlarr = cfg.prowlarr || state.prowlarr;
 
@@ -884,6 +923,7 @@
       $('sort').value = state.sort;
       $('style').value = state.style;
       $('tzUrl').value = state.torznab.url || '';
+      $('proxy').value = state.proxy || '';
       $('tgNoCam').classList.toggle('on', state.noCam);
       $('tgEff').classList.toggle('on', state.preferEfficient);
       $('tgCached').classList.toggle('on', state.cachedOnly);
