@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Configure Hydra</title>
+<meta name="robots" content="noindex" />
+<link rel="icon" href="/logo.svg" type="image/svg+xml" />
+<style>
+  :root{
+    --bg:#07080b; --bg2:#0a0c12; --panel:rgba(255,255,255,.035); --panel2:rgba(255,255,255,.06);
+    --line:rgba(255,255,255,.085); --line2:rgba(255,255,255,.16);
+    --text:#eef1f7; --muted:#8b93a7; --dim:#5d6478;
+    --violet:#7c5cff; --cyan:#22d3ee; --green:#34d399; --red:#f87171; --amber:#fbbf24;
+    --font:-apple-system,BlinkMacSystemFont,"Segoe UI Variable Display","Segoe UI",Inter,system-ui,sans-serif;
+    --mono:ui-monospace,"SF Mono","Cascadia Code","JetBrains Mono",Menlo,monospace;
+    --r:14px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:var(--font);-webkit-font-smoothing:antialiased;line-height:1.55}
+  a{color:inherit;text-decoration:none}
+  ::selection{background:rgba(124,92,255,.35)}
+  button{font-family:inherit;cursor:pointer}
+
+  .aurora{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+  .blob{position:absolute;border-radius:50%;filter:blur(120px);opacity:.22}
+  .b1{width:560px;height:560px;background:#5b3df5;top:-260px;left:-120px}
+  .b2{width:460px;height:460px;background:#0e7490;top:120px;right:-160px}
+
+  nav{position:sticky;top:0;z-index:40;backdrop-filter:blur(18px);background:rgba(7,8,11,.8);border-bottom:1px solid var(--line)}
+  .nav-in{max-width:1220px;margin:0 auto;padding:13px 24px;display:flex;align-items:center;gap:12px}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.02em;font-size:16px}
+  .brand img{width:26px;height:26px;border-radius:7px}
+  .nav-sub{color:var(--dim);font-size:13px;margin-left:2px}
+  .nav-in .right{margin-left:auto;font-size:13px;color:var(--muted)}
+
+  .shell{position:relative;z-index:1;max-width:1220px;margin:0 auto;padding:34px 24px 80px;
+         display:grid;grid-template-columns:minmax(0,1fr) 400px;gap:28px;align-items:start}
+  @media(max-width:1040px){.shell{grid-template-columns:1fr;padding-bottom:60px}}
+
+  /* ---------- blocks ---------- */
+  .block{background:var(--panel);border:1px solid var(--line);border-radius:var(--r);padding:24px;margin-bottom:16px}
+  .block > h2{font-size:15px;font-weight:650;letter-spacing:-.01em;display:flex;align-items:center;gap:10px;margin-bottom:4px}
+  .num{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font-family:var(--mono);font-size:11px;
+       background:rgba(124,92,255,.16);border:1px solid rgba(124,92,255,.32);color:#c4b5fd;flex:none}
+  .opt{font-family:var(--mono);font-size:10px;font-weight:500;color:var(--dim);border:1px solid var(--line);
+       padding:2px 7px;border-radius:5px;letter-spacing:.04em}
+  .sub{font-size:13px;color:var(--muted);margin:6px 0 18px;line-height:1.6}
+
+  /* ---------- mode cards ---------- */
+  .modes{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+  @media(max-width:640px){.modes{grid-template-columns:1fr}}
+  .mcard{
+    text-align:left;padding:16px 14px;border-radius:12px;border:1px solid var(--line);
+    background:rgba(255,255,255,.02);transition:.18s;position:relative;
+  }
+  .mcard:hover{border-color:var(--line2);background:rgba(255,255,255,.045)}
+  .mcard.sel{border-color:rgba(124,92,255,.65);background:rgba(124,92,255,.1);box-shadow:0 0 0 1px rgba(124,92,255,.28) inset}
+  .mcard b{display:block;font-size:13.5px;font-weight:650;margin-bottom:4px}
+  .mcard span{font-size:12px;color:var(--muted);line-height:1.5;display:block}
+  .mcard .tick{position:absolute;top:12px;right:12px;width:15px;height:15px;border-radius:50%;
+               border:1.5px solid var(--line2);transition:.18s}
+  .mcard.sel .tick{border-color:var(--violet);background:var(--violet);
+                   box-shadow:0 0 0 3px rgba(124,92,255,.18)}
+  .mcard.sel .tick::after{content:"";position:absolute;inset:3.5px;border-radius:50%;background:#fff}
+
+  /* ---------- inputs ---------- */
+  .field{display:flex;gap:9px;flex-wrap:wrap}
+  input[type=text],input[type=password],input[type=url],select{
+    flex:1;min-width:180px;background:rgba(0,0,0,.35);border:1px solid var(--line2);border-radius:10px;
+    padding:11px 13px;color:var(--text);font-size:13.5px;font-family:var(--mono);outline:none;transition:.16s;
+  }
+  input:focus,select:focus{border-color:rgba(124,92,255,.7);box-shadow:0 0 0 3px rgba(124,92,255,.14)}
+  input::placeholder{color:#40465a;font-family:var(--font)}
+  .btn{
+    display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:11px 18px;border-radius:10px;
+    border:1px solid var(--line2);background:var(--panel2);color:var(--text);font-size:13.5px;font-weight:600;
+    transition:.16s;white-space:nowrap;
+  }
+  .btn:hover{background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.24)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn-primary{background:linear-gradient(135deg,var(--violet),#5b3df5);border-color:transparent;color:#fff}
+  .btn-primary:hover{filter:brightness(1.1)}
+  .btn-sm{padding:8px 13px;font-size:12.5px;border-radius:8px}
+  .status{margin-top:11px;font-size:12.5px;display:none;padding:9px 12px;border-radius:9px;line-height:1.5}
+  .status.show{display:block}
+  .status.ok{background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.3);color:#a7f3d0}
+  .status.err{background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3);color:#fecaca}
+  .status.wait{background:rgba(255,255,255,.05);border:1px solid var(--line);color:var(--muted)}
+
+  /* ---------- toggles ---------- */
+  .tg-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  @media(max-width:640px){.tg-grid{grid-template-columns:repeat(2,1fr)}}
+  .tg{display:flex;align-items:center;gap:9px;padding:10px 12px;border-radius:10px;border:1px solid var(--line);
+      background:rgba(255,255,255,.02);cursor:pointer;transition:.16s;user-select:none}
+  .tg:hover{border-color:var(--line2)}
+  .tg.on{border-color:rgba(52,211,153,.42);background:rgba(52,211,153,.07)}
+  .sw{width:30px;height:17px;border-radius:100px;background:rgba(255,255,255,.12);position:relative;flex:none;transition:.2s}
+  .sw::after{content:"";position:absolute;top:2px;left:2px;width:13px;height:13px;border-radius:50%;
+             background:#8b93a7;transition:.2s}
+  .tg.on .sw{background:rgba(52,211,153,.32)}
+  .tg.on .sw::after{transform:translateX(13px);background:var(--green)}
+  .tg span{font-size:12.5px;color:var(--muted);font-weight:500}
+  .tg.on span{color:var(--text)}
+
+  /* ---------- chips ---------- */
+  .chip-row{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:18px}
+  .chip{padding:7px 14px;border-radius:100px;border:1px solid var(--line);background:transparent;
+        color:var(--muted);font-size:12.5px;transition:.16s;font-weight:500}
+  .chip:hover{border-color:var(--line2);color:var(--text)}
+  .chip.on{border-color:rgba(124,92,255,.6);background:rgba(124,92,255,.13);color:#d6ccff}
+
+  .row{display:flex;align-items:center;gap:14px;padding:11px 0;border-top:1px solid rgba(255,255,255,.05)}
+  .row:first-of-type{border-top:none}
+  .row label{font-size:13px;color:var(--muted);flex:1}
+  .row .val{font-family:var(--mono);font-size:12px;color:var(--text);min-width:44px;text-align:right}
+  input[type=range]{-webkit-appearance:none;width:150px;height:4px;border-radius:100px;
+                    background:rgba(255,255,255,.12);outline:none}
+  input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;
+    background:var(--violet);cursor:pointer;box-shadow:0 0 0 3px rgba(124,92,255,.2)}
+  input[type=range]::-moz-range-thumb{width:14px;height:14px;border:none;border-radius:50%;background:var(--violet);cursor:pointer}
+  select{flex:none;width:auto;min-width:130px;font-family:var(--font);font-size:13px}
+
+  /* ---------- aside ---------- */
+  aside{position:sticky;top:78px;display:grid;gap:14px}
+  @media(max-width:1040px){aside{position:static}}
+  .panel{background:linear-gradient(180deg,rgba(255,255,255,.055),rgba(255,255,255,.02));
+         border:1px solid var(--line2);border-radius:var(--r);padding:20px}
+  .panel h3{font-size:13px;font-weight:650;letter-spacing:.02em;color:var(--muted);
+            text-transform:uppercase;margin-bottom:14px;display:flex;align-items:center;gap:8px}
+  .panel h3 .live{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green)}
+
+  .urlbox{
+    font-family:var(--mono);font-size:11.5px;line-height:1.55;color:#b9c2d6;background:rgba(0,0,0,.45);
+    border:1px solid var(--line);border-radius:10px;padding:12px;max-height:112px;overflow:auto;
+    word-break:break-all;transition:.2s;
+  }
+  .urlbox.pending{opacity:.4}
+  .install{display:grid;gap:8px;margin-top:14px}
+  .install .btn{width:100%;justify-content:center}
+  .hintline{font-size:11.5px;color:var(--dim);margin-top:12px;line-height:1.55}
+
+  .test-out{margin-top:14px;display:none}
+  .test-out.show{display:block}
+  .test-head{display:flex;gap:14px;font-family:var(--mono);font-size:11px;color:var(--muted);
+             padding:9px 0;border-bottom:1px solid var(--line);margin-bottom:10px;flex-wrap:wrap}
+  .test-head b{color:var(--text);font-weight:600}
+  .srow{display:flex;gap:10px;align-items:flex-start;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.04);font-size:11.5px}
+  .srow:last-child{border-bottom:none}
+  .badge{font-family:var(--mono);font-size:9.5px;padding:2px 6px;border-radius:5px;flex:none;margin-top:1px;
+         background:rgba(124,92,255,.18);color:#c4b5fd;border:1px solid rgba(124,92,255,.3)}
+  .badge.p2p{background:rgba(52,211,153,.14);color:#6ee7b7;border-color:rgba(52,211,153,.3)}
+  .badge.tb{background:rgba(251,191,36,.14);color:#fcd34d;border-color:rgba(251,191,36,.3)}
+  .srow .t{color:var(--muted);line-height:1.45;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+  .spinner{width:13px;height:13px;border:2px solid rgba(255,255,255,.2);border-top-color:#fff;
+           border-radius:50%;animation:spin .7s linear infinite;display:inline-block}
+  @keyframes spin{to{transform:rotate(360deg)}}
+
+  .toast{position:fixed;bottom:26px;left:50%;transform:translate(-50%,20px);z-index:99;
+         background:#14161f;border:1px solid var(--line2);color:var(--text);padding:11px 20px;border-radius:10px;
+         font-size:13px;opacity:0;transition:.25s;pointer-events:none;box-shadow:0 12px 40px -10px rgba(0,0,0,.8)}
+  .toast.show{opacity:1;transform:translate(-50%,0)}
+  .dimmed{opacity:.42;pointer-events:none}
+</style>
+</head>
+<body>
+<div class="aurora"><div class="blob b1"></div><div class="blob b2"></div></div>
+
+<nav>
+  <div class="nav-in">
+    <a class="brand" href="/"><img src="/logo.svg" alt="" />Hydra</a>
+    <span class="nav-sub">/ setup</span>
+    <span class="right"><a href="/" style="color:var(--muted)">← back to home</a></span>
+  </div>
+</nav>
+
+<div class="shell">
+  <main>
+    <div class="block">
+      <h2><span class="num">1</span>Playback mode</h2>
+      <p class="sub">How Hydra should turn a search result into something playable.</p>
+      <div class="modes" id="modeGroup">
+        <button class="mcard sel" data-mode="hybrid">
+          <span class="tick"></span><b>Hybrid</b>
+          <span>Cached results from TorBox, everything else over P2P.</span>
+        </button>
+        <button class="mcard" data-mode="debrid">
+          <span class="tick"></span><b>Debrid only</b>
+          <span>Only show what TorBox can serve instantly.</span>
+        </button>
+        <button class="mcard" data-mode="p2p">
+          <span class="tick"></span><b>P2P only</b>
+          <span>Never contact TorBox. No account needed.</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="block" id="torboxBlock">
+      <h2><span class="num">2</span>TorBox <span class="opt">optional</span></h2>
+      <p class="sub">Your key is stored only inside the addon URL — never on a server. Hydra uses it for one batch cache check and, on play, a single direct-link request.</p>
+      <div class="field">
+        <input type="password" id="tb" placeholder="Paste your TorBox API key" autocomplete="off" spellcheck="false" />
+        <button class="btn" id="verifyBtn">Verify</button>
+      </div>
+      <div class="status" id="tbStatus"></div>
+      <p class="hintline">Get a key at <a href="https://torbox.app/subscription" target="_blank" rel="noopener" style="color:#a78bfa">torbox.app</a> → Settings → API. Free accounts work for cache checks.</p>
+    </div>
+
+    <div class="block">
+      <h2><span class="num">3</span>Sources</h2>
+      <p class="sub">Knaben indexes dozens of trackers on its own. Turn the rest on for extra coverage.</p>
+      <div class="tg-grid" id="providers"></div>
+    </div>
+
+    <div class="block">
+      <h2><span class="num">4</span>Filters</h2>
+      <p class="sub">Fewer, better results beat a wall of 200 links.</p>
+
+      <div class="chip-row" id="resGroup" style="margin-bottom:8px"></div>
+
+      <div class="row">
+        <label>Max results</label>
+        <input type="range" id="max" min="10" max="80" step="5" value="40" />
+        <span class="val" id="maxVal">40</span>
+      </div>
+      <div class="row">
+        <label>Minimum seeders</label>
+        <input type="range" id="minSeed" min="0" max="100" step="5" value="0" />
+        <span class="val" id="minSeedVal">0</span>
+      </div>
+      <div class="row">
+        <label>Sort by</label>
+        <select id="sort">
+          <option value="quality">Quality</option>
+          <option value="seeders">Seeders</option>
+          <option value="size">Size</option>
+        </select>
+      </div>
+      <div class="row" style="gap:10px;flex-wrap:wrap">
+        <div class="tg on" id="tgNoCam" style="flex:1"><span class="sw"></span><span>Block CAM / TS</span></div>
+        <div class="tg on" id="tgEff" style="flex:1"><span class="sw"></span><span>Prefer x265 / AV1</span></div>
+      </div>
+      <div class="row" style="gap:10px;flex-wrap:wrap">
+        <div class="tg" id="tgCached" style="flex:1"><span class="sw"></span><span>Cached only</span></div>
+        <div class="tg" id="tgUncached" style="flex:1"><span class="sw"></span><span>Allow uncached download</span></div>
+      </div>
+    </div>
+
+    <div class="block">
+      <h2><span class="num">5</span>Advanced <span class="opt">optional</span></h2>
+      <p class="sub">Point at a publicly reachable Prowlarr to unlock private trackers.</p>
+      <div class="field" style="margin-bottom:9px">
+        <input type="url" id="prowlarrUrl" placeholder="https://prowlarr.example.com" />
+      </div>
+      <div class="field">
+        <input type="password" id="prowlarrKey" placeholder="Prowlarr API key" autocomplete="off" />
+      </div>
+    </div>
+  </main>
+
+  <aside>
+    <div class="panel">
+      <h3><span class="live"></span>Your addon</h3>
+      <div class="urlbox" id="urlBox">building…</div>
+      <div class="install">
+        <button class="btn btn-primary" id="copyBtn">Copy manifest URL</button>
+        <button class="btn" id="stremioBtn">Install in Stremio</button>
+        <button class="btn" id="stremioWebBtn">Open Stremio Web</button>
+      </div>
+      <p class="hintline" id="installHint">
+        Nuvio: Dashboard → Addons → Add Addon → paste the URL above.
+      </p>
+    </div>
+
+    <div class="panel">
+      <h3>Live test</h3>
+      <button class="btn btn-sm" id="testBtn" style="width:100%">Test with Inception (2010)</button>
+      <div class="test-out" id="testOut"></div>
+      <p class="hintline" id="testHint">Runs a real stream request against your current settings. Nothing is installed.</p>
+    </div>
+  </aside>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  const PROVIDERS = [
+    ['knaben', 'Knaben'], ['yts', 'YTS'], ['eztv', 'EZTV'],
+    ['solid', 'SolidTorrents'], ['nyaa', 'Nyaa'], ['apibay', 'The Pirate Bay'],
+    ['animetosho', 'AniTosho'], ['therarbg', 'RARBG'], ['prowlarr', 'Prowlarr']
+  ];
+  const RES = [['4k', '4K'], ['1080p', '1080p'], ['720p', '720p'], ['480p', '480p']];
+
+  const origin = location.origin;
+
+  const state = {
+    mode: 'hybrid',
+    tb: '',
+    providers: { knaben: true, yts: true, eztv: true, solid: true, nyaa: true, apibay: true, animetosho: true, therarbg: false, prowlarr: false },
+    res: ['4k', '1080p', '720p', '480p'],
+    max: 40,
+    minSeed: 0,
+    noCam: true,
+    preferEfficient: true,
+    cachedOnly: false,
+    tbUncached: false,
+    sort: 'quality',
+    prowlarr: { url: '', key: '' },
+    blob: null
+  };
+
+  const $ = (id) => document.getElementById(id);
+
+  /* ---------------- toast ---------------- */
+  let toastTimer;
+  function toast(msg) {
+    const el = $('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove('show'), 1900);
+  }
+
+  /* ---------------- base64url ---------------- */
+  function b64url(bytes) {
+    let s = '';
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      s += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+    }
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+
+  async function localEncode(config) {
+    if (typeof CompressionStream === 'undefined') throw new Error('no compression support');
+    const data = new TextEncoder().encode(JSON.stringify(config));
+    const stream = new Blob([data]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+    const buf = new Uint8Array(await new Response(stream).arrayBuffer());
+    return 'd1' + b64url(buf);
+  }
+
+  async function encodeConfig(config) {
+    try {
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'encode', config })
+      });
+      const json = await res.json();
+      if (json && json.ok && json.blob) return json.blob;
+    } catch (_) { /* fall through */ }
+    return localEncode(config);
+  }
+
+  /* ---------------- render ---------------- */
+  function renderProviders() {
+    const box = $('providers');
+    box.innerHTML = '';
+    for (const [id, label] of PROVIDERS) {
+      const el = document.createElement('div');
+      el.className = 'tg' + (state.providers[id] ? ' on' : '');
+      el.innerHTML = '<span class="sw"></span><span>' + label + '</span>';
+      el.addEventListener('click', () => {
+        state.providers[id] = !state.providers[id];
+        el.classList.toggle('on', state.providers[id]);
+        scheduleUpdate();
+      });
+      box.appendChild(el);
+    }
+  }
+
+  function renderRes() {
+    const box = $('resGroup');
+    box.innerHTML = '';
+    for (const [id, label] of RES) {
+      const b = document.createElement('button');
+      b.className = 'chip' + (state.res.includes(id) ? ' on' : '');
+      b.textContent = label;
+      b.addEventListener('click', () => {
+        if (state.res.includes(id)) {
+          if (state.res.length === 1) return;
+          state.res = state.res.filter((r) => r !== id);
+        } else {
+          state.res.push(id);
+        }
+        renderRes();
+        scheduleUpdate();
+      });
+      box.appendChild(b);
+    }
+  }
+
+  function syncMode() {
+    document.querySelectorAll('.mcard').forEach((c) => {
+      c.classList.toggle('sel', c.dataset.mode === state.mode);
+    });
+    const tbBlock = $('torboxBlock');
+    const needsKey = state.mode !== 'p2p';
+    tbBlock.classList.toggle('dimmed', !needsKey);
+    $('tgCached').classList.toggle('dimmed', !needsKey || !state.tb);
+    $('tgUncached').classList.toggle('dimmed', !needsKey || !state.tb);
+  }
+
+  /* ---------------- URL ---------------- */
+  let updateTimer;
+  function scheduleUpdate() {
+    clearTimeout(updateTimer);
+    updateTimer = setTimeout(updateUrl, 320);
+  }
+
+  async function updateUrl() {
+    const box = $('urlBox');
+    box.classList.add('pending');
+    const config = {
+      v: 1,
+      tb: state.tb,
+      mode: state.mode,
+      providers: state.providers,
+      res: state.res,
+      max: state.max,
+      minSeed: state.minSeed,
+      noCam: state.noCam,
+      preferEfficient: state.preferEfficient,
+      cachedOnly: state.cachedOnly,
+      tbUncached: state.tbUncached,
+      sort: state.sort,
+      prowlarr: state.prowlarr
+    };
+    try {
+      state.blob = await encodeConfig(config);
+      const url = origin + '/' + state.blob + '/manifest.json';
+      box.textContent = url;
+      box.classList.remove('pending');
+    } catch (err) {
+      box.textContent = 'Could not encode configuration: ' + err.message;
+      box.classList.remove('pending');
+    }
+  }
+
+  function manifestUrl() {
+    return state.blob ? origin + '/' + state.blob + '/manifest.json' : '';
+  }
+
+  /* ---------------- verify key ---------------- */
+  async function verifyKey() {
+    const key = $('tb').value.trim();
+    const box = $('tbStatus');
+    box.className = 'status show wait';
+    box.innerHTML = '<span class="spinner"></span> Checking with TorBox…';
+    $('verifyBtn').disabled = true;
+    try {
+      const res = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ action: 'verify', key })
+      });
+      const json = await res.json();
+      if (json.ok) {
+        const u = json.user || {};
+        const bits = [];
+        if (u.email) bits.push(u.email);
+        if (u.expires) bits.push('expires ' + String(u.expires).slice(0, 10));
+        box.className = 'status show ok';
+        box.textContent = '✓ Key is valid' + (bits.length ? ' — ' + bits.join(' · ') : '');
+      } else {
+        box.className = 'status show err';
+        box.textContent = '✕ ' + (json.error || 'Key rejected');
+      }
+    } catch (err) {
+      box.className = 'status show err';
+      box.textContent = '✕ Could not reach the server';
+    } finally {
+      $('verifyBtn').disabled = false;
+    }
+  }
+
+  /* ---------------- live test ---------------- */
+  async function runTest() {
+    if (!state.blob) return;
+    const btn = $('testBtn');
+    const out = $('testOut');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Searching…';
+    out.className = 'test-out show';
+    out.innerHTML = '<div class="hintline" style="margin:0">Querying every enabled source…</div>';
+
+    const t0 = performance.now();
+    try {
+      const res = await fetch(origin + '/' + state.blob + '/stream/movie/tt1375666.json');
+      const json = await res.json();
+      const ms = Math.round(performance.now() - t0);
+      const streams = json.streams || [];
+
+      if (!streams.length) {
+        out.innerHTML = '<div class="status show err" style="margin:0">No streams found. Try enabling more sources or relaxing filters.</div>';
+        return;
+      }
+
+      const head =
+        '<div class="test-head"><span><b>' + streams.length + '</b> streams</span>' +
+        '<span><b>' + ms + '</b> ms</span>' +
+        '<span>' + streams.filter((s) => s.url).length + ' debrid</span>' +
+        '<span>' + streams.filter((s) => s.infoHash).length + ' p2p</span></div>';
+
+      const rows = streams.slice(0, 6).map((s) => {
+        const kind = s.url ? (s.name.includes('⚡') ? 'tb' : 'tb') : 'p2p';
+        const label = s.url ? (s.name.includes('⚡') ? 'TB' : 'TB↓') : 'P2P';
+        const title = String(s.title || '').split('\n').join(' · ');
+        return '<div class="srow"><span class="badge ' + kind + '">' + label + '</span>' +
+               '<span class="t">' + title.replace(/</g, '&lt;') + '</span></div>';
+      }).join('');
+
+      out.innerHTML = head + rows;
+    } catch (err) {
+      out.innerHTML = '<div class="status show err" style="margin:0">Request failed: ' + err.message + '</div>';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Test with Inception (2010)';
+    }
+  }
+
+  /* ---------------- wire up ---------------- */
+  document.querySelectorAll('.mcard').forEach((card) => {
+    card.addEventListener('click', () => {
+      state.mode = card.dataset.mode;
+      syncMode();
+      scheduleUpdate();
+    });
+  });
+
+  $('tb').addEventListener('input', (e) => {
+    state.tb = e.target.value.trim();
+    syncMode();
+    scheduleUpdate();
+  });
+  $('verifyBtn').addEventListener('click', verifyKey);
+
+  $('max').addEventListener('input', (e) => {
+    state.max = Number(e.target.value);
+    $('maxVal').textContent = state.max;
+    scheduleUpdate();
+  });
+  $('minSeed').addEventListener('input', (e) => {
+    state.minSeed = Number(e.target.value);
+    $('minSeedVal').textContent = state.minSeed;
+    scheduleUpdate();
+  });
+  $('sort').addEventListener('change', (e) => {
+    state.sort = e.target.value;
+    scheduleUpdate();
+  });
+
+  const toggleMap = {
+    tgNoCam: ['noCam', true],
+    tgEff: ['preferEfficient', true],
+    tgCached: ['cachedOnly', false],
+    tgUncached: ['tbUncached', false]
+  };
+  for (const [id, [key]] of Object.entries(toggleMap)) {
+    const el = $(id);
+    el.addEventListener('click', () => {
+      state[key] = !state[key];
+      el.classList.toggle('on', state[key]);
+      scheduleUpdate();
+    });
+  }
+
+  $('prowlarrUrl').addEventListener('input', (e) => {
+    state.prowlarr.url = e.target.value.trim();
+    state.providers.prowlarr = !!(state.prowlarr.url && state.prowlarr.key);
+    renderProviders();
+    scheduleUpdate();
+  });
+  $('prowlarrKey').addEventListener('input', (e) => {
+    state.prowlarr.key = e.target.value.trim();
+    state.providers.prowlarr = !!(state.prowlarr.url && state.prowlarr.key);
+    renderProviders();
+    scheduleUpdate();
+  });
+
+  $('copyBtn').addEventListener('click', async () => {
+    const url = manifestUrl();
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast('Manifest URL copied');
+    } catch {
+      const ta = document.createElement('textarea');
+      ta.value = url;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      ta.remove();
+      toast('Manifest URL copied');
+    }
+  });
+
+  $('stremioBtn').addEventListener('click', () => {
+    if (!state.blob) return;
+    const host = location.host;
+    window.location.href = 'stremio://' + host + '/' + state.blob + '/manifest.json';
+  });
+
+  $('stremioWebBtn').addEventListener('click', () => {
+    const url = manifestUrl();
+    if (!url) return;
+    window.open('https://web.stremio.com/#/addons?addon=' + encodeURIComponent(url), '_blank', 'noopener');
+  });
+
+  $('testBtn').addEventListener('click', runTest);
+
+  /* ---------------- hydrate from ?c= ---------------- */
+  async function hydrate() {
+    const params = new URLSearchParams(location.search);
+    const c = params.get('c');
+    if (!c) return;
+    try {
+      const res = await fetch('/api/config?c=' + encodeURIComponent(c));
+      const json = await res.json();
+      if (!json.ok || !json.config) return;
+      const cfg = json.config;
+      Object.assign(state, {
+        mode: cfg.mode || state.mode,
+        providers: { ...state.providers, ...(cfg.providers || {}) },
+        res: cfg.res && cfg.res.length ? cfg.res : state.res,
+        max: cfg.max || state.max,
+        minSeed: cfg.minSeed || 0,
+        noCam: cfg.noCam !== false,
+        preferEfficient: cfg.preferEfficient !== false,
+        cachedOnly: !!cfg.cachedOnly,
+        tbUncached: !!cfg.tbUncached,
+        sort: cfg.sort || state.sort,
+        prowlarr: cfg.prowlarr || state.prowlarr
+      });
+      $('max').value = state.max; $('maxVal').textContent = state.max;
+      $('minSeed').value = state.minSeed; $('minSeedVal').textContent = state.minSeed;
+      $('sort').value = state.sort;
+      $('prowlarrUrl').value = state.prowlarr.url || '';
+      $('tgNoCam').classList.toggle('on', state.noCam);
+      $('tgEff').classList.toggle('on', state.preferEfficient);
+      $('tgCached').classList.toggle('on', state.cachedOnly);
+      $('tgUncached').classList.toggle('on', state.tbUncached);
+      renderProviders(); renderRes(); syncMode();
+      updateUrl();
+      toast('Existing configuration loaded');
+    } catch (_) { /* ignore */ }
+  }
+
+  renderProviders();
+  renderRes();
+  syncMode();
+  updateUrl();
+  hydrate();
+})();
+</script>
+</body>
+</html>

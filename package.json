@@ -1,0 +1,15 @@
+{
+  "name": "hydrastream",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Hydra — one Stremio/Nuvio addon, every source. TorBox debrid + native P2P. Zero dependencies.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.js",
+    "start": "node scripts/dev.js",
+    "test": "node scripts/selftest.js"
+  }
+}

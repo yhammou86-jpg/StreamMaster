@@ -1,0 +1,28 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "functions": {
+    "api/*.js": {
+      "maxDuration": 30,
+      "memory": 1024
+    }
+  },
+  "rewrites": [
+    { "source": "/manifest.json", "destination": "/api/manifest" },
+    { "source": "/:c/manifest.json", "destination": "/api/manifest?c=:c" },
+    { "source": "/:c/stream/:type/:id", "destination": "/api/stream?c=:c&type=:type&id=:id" },
+    { "source": "/r/:h", "destination": "/api/resolve?h=:h" },
+    { "source": "/configure", "destination": "/configure.html" },
+    { "source": "/health", "destination": "/api/health" }
+  ],
+  "headers": [
+    {
+      "source": "/api/(.*)",
+      "headers": [
+        { "key": "Access-Control-Allow-Origin", "value": "*" },
+        { "key": "Access-Control-Allow-Headers", "value": "*" },
+        { "key": "Cache-Control", "value": "no-store" }
+      ]
+    }
+  ]
+}
