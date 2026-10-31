@@ -194,6 +194,9 @@
           <span>Never contact TorBox. No account needed.</span>
         </button>
       </div>
+      <p class="sub" id="modeWarn" style="display:none;color:#fcd34d;margin-top:12px">
+        ⚠ Debrid-only needs a TorBox key. Without one, Hydra falls back to hybrid.
+      </p>
     </div>
 
     <div class="block" id="torboxBlock">
@@ -403,6 +406,7 @@
     tbBlock.classList.toggle('dimmed', !needsKey);
     $('tgCached').classList.toggle('dimmed', !needsKey || !state.tb);
     $('tgUncached').classList.toggle('dimmed', !needsKey || !state.tb);
+    $('modeWarn').style.display = state.mode === 'debrid' && !state.tb ? 'block' : 'none';
   }
 
   /* ---------------- URL ---------------- */
