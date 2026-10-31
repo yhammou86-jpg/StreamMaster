@@ -14,7 +14,9 @@
  * the listing fast and avoids polluting the account with 40 dead torrents.
  */
 
-const { request, json } = require('./http');
+const { request, json } = require('../http');
+const cache = require('../cache');
+const { magnet } = require('../trackers');
 
 const BASE = 'https://api.torbox.app/v1/api';
 const VIDEO_EXT = /\.(mkv|mp4|m4v|avi|mov|webm|ts|m2ts|mpg|mpeg|wmv|flv)$/i;
@@ -73,11 +75,11 @@ async function call(path, key, { method = 'GET', timeout = 9000, fields } = {}) 
 
 /**
  * Batch cache probe.
- * @param {string[]} hashes lowercase infohashes (max ~100 per call)
  * @param {string} key TorBox API key
+ * @param {string[]} hashes lowercase infohashes (max ~100 per call)
  * @returns {Promise<Set<string>>} set of cached hashes
  */
-async function checkCached(hashes, key) {
+async function checkCached(key, hashes) {
   const unique = [...new Set(hashes.filter((h) => /^[a-f0-9]{40}$/.test(h)))].slice(0, 100);
   if (!unique.length) return new Set();
 
@@ -162,6 +164,44 @@ async function userInfo(key) {
   return call('/user/me', key, { timeout: 8000 });
 }
 
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Full play-time resolution: register the magnet, wait for the file list, pick
+ * the right file, mint a direct link. Cached torrents are ready in well under a
+ * second; uncached ones get a bounded wait.
+ */
+async function resolve(key, hash, hint, opts = {}) {
+  const allowUncached = !!opts.allowUncached;
+  const cacheKey = `tb:${hash}:${key.slice(-10)}`;
+
+  let rec = cache.get(cacheKey);
+  if (!rec) {
+    const created = await createTorrent(key, magnet(hash, hint || 'video'), {
+      cachedOnly: !allowUncached,
+    });
+
+    let torrent = null;
+    const deadline = Date.now() + (allowUncached ? 9000 : 3500);
+    while (Date.now() < deadline) {
+      torrent = await getTorrent(key, created.id);
+      if (torrent && Array.isArray(torrent.files) && torrent.files.length) break;
+      await sleep(600);
+    }
+
+    const file = torrent && pickFile(torrent.files, hint);
+    if (!file) {
+      const err = new Error('TorBox is still preparing this file. Try again in a few seconds.');
+      err.status = 503;
+      throw err;
+    }
+    rec = { id: created.id, fileId: file.id, name: file.name };
+    cache.set(cacheKey, rec, 45 * 60 * 1000);
+  }
+
+  return requestDownload(key, rec.id, rec.fileId);
+}
+
 module.exports = {
   checkCached,
   createTorrent,
@@ -169,4 +209,5 @@ module.exports = {
   pickFile,
   requestDownload,
   userInfo,
+  resolve,
 };

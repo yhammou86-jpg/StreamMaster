@@ -44,14 +44,14 @@ async function testAsync(name, fn) {
 console.log('\ncodec');
 
 test('round-trips a config', () => {
-  const cfg = normalize({ tb: 'abc123', mode: 'hybrid', max: 55 });
+  const cfg = normalize({ key: 'abc123', mode: 'hybrid', max: 55 });
   const blob = encode(cfg);
   assert.ok(blob.startsWith('d1'), 'expected d1 prefix');
   assert.deepStrictEqual(decode(blob), cfg);
 });
 
 test('stays short enough for a URL', () => {
-  const blob = encode(normalize({ tb: 'x'.repeat(40) }));
+  const blob = encode(normalize({ key: 'x'.repeat(40) }));
   assert.ok(blob.length < 400, `blob was ${blob.length} chars`);
 });
 
@@ -63,7 +63,7 @@ test('rejects garbage instead of throwing', () => {
 
 test('encrypts when CONFIG_SECRET is set', () => {
   process.env.CONFIG_SECRET = 'test-secret-value';
-  const cfg = normalize({ tb: 'super-secret-key' });
+  const cfg = normalize({ key: 'super-secret-key' });
   const blob = encode(cfg);
   assert.ok(blob.startsWith('e1'), 'expected e1 prefix');
   assert.ok(!blob.includes('super-secret'), 'key must not appear in plaintext');
@@ -87,7 +87,7 @@ test('drops unknown providers and resolutions', () => {
 });
 
 test('disables debrid-only mode without a key', () => {
-  const cfg = normalize({ mode: 'debrid', tb: '' });
+  const cfg = normalize({ mode: 'debrid', key: '' });
   assert.strictEqual(cfg.mode, 'hybrid');
 });
 
@@ -181,7 +181,7 @@ test('manifest is valid Stremio JSON', () => {
 test('health lists every provider', () => {
   const body = JSON.parse(handleHealth().body);
   assert.strictEqual(body.ok, true);
-  assert.ok(body.providers.length >= 8);
+  assert.ok(body.providers.length >= 10);
 });
 
 test('config endpoint encodes a blob', async () => {

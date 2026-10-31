@@ -31,7 +31,7 @@ function livenessPenalty(seeders) {
 
 function scoreItem(item, cfg, opts = {}) {
   const p = item.parsed;
-  const useLiveness = opts.liveness !== false && !item.cached && item.via !== 'torbox';
+  const useLiveness = opts.liveness !== false && !item.cached && item.via !== 'debrid';
   let score = 0;
 
   score += p.resRank * 1000;

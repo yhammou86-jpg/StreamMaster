@@ -3,9 +3,8 @@
 /**
  * Configuration schema + normalisation.
  *
- * Everything is stored with short keys because the whole object is compressed
- * into the addon URL. Unknown keys are dropped and every value is clamped so a
- * hand-edited URL can never crash the addon.
+ * Short keys because the whole object is compressed into the addon URL. Every
+ * value is clamped so a hand-edited URL can never crash the addon.
  */
 
 const PROVIDER_IDS = [
@@ -18,18 +17,19 @@ const PROVIDER_IDS = [
   'animetosho',
   'therarbg',
   'prowlarr',
+  'torznab',
 ];
 
 const RESOLUTIONS = ['4k', '1080p', '720p', '480p', '360p'];
+const SERVICES = ['torbox', 'realdebrid'];
+const STYLES = ['rich', 'compact'];
 
 const DEFAULTS = {
-  v: 1,
-  // TorBox API key (optional — omit for pure P2P)
-  tb: '',
-  // 'hybrid' = debrid when cached, P2P otherwise. 'debrid' = TorBox only.
-  // 'p2p' = never touch TorBox, always hand the client an infohash.
+  v: 2,
+  svc: 'torbox',
+  key: '',
   mode: 'hybrid',
-  // Enabled scrapers
+  style: 'rich',
   providers: {
     knaben: true,
     yts: true,
@@ -40,25 +40,19 @@ const DEFAULTS = {
     animetosho: true,
     therarbg: false,
     prowlarr: false,
+    torznab: false,
   },
-  // Quality filters
   res: ['4k', '1080p', '720p', '480p'],
   max: 40,
   minSeed: 0,
-  // Block low-quality releases
   noCam: true,
-  // Sort order: 'quality' | 'seeders' | 'size'
   sort: 'quality',
-  // Only show results TorBox already has cached (fastest, zero waiting)
   cachedOnly: false,
-  // Allow TorBox to fetch uncached torrents on play (slow first play)
-  tbUncached: false,
-  // Prefer HEVC/AV1 encodes (smaller files, same quality)
+  uncached: false,
   preferEfficient: true,
-  // Preferred audio/subtitle language hint, e.g. 'ita', 'fre'
   lang: '',
-  // Self-hosted Prowlarr (optional)
   prowlarr: { url: '', key: '' },
+  torznab: { url: '', key: '' },
 };
 
 function bool(v, dflt) {
@@ -73,10 +67,16 @@ function clampInt(v, min, max, dflt) {
 
 function normalize(raw) {
   const src = raw && typeof raw === 'object' ? raw : {};
+
+  // `tb` was the original single-service key name; accept it as an alias.
+  const key = typeof src.key === 'string' ? src.key : typeof src.tb === 'string' ? src.tb : '';
+
   const cfg = {
-    v: 1,
-    tb: typeof src.tb === 'string' ? src.tb.trim() : '',
+    v: 2,
+    svc: SERVICES.includes(src.svc) ? src.svc : DEFAULTS.svc,
+    key: key.trim(),
     mode: ['hybrid', 'debrid', 'p2p'].includes(src.mode) ? src.mode : DEFAULTS.mode,
+    style: STYLES.includes(src.style) ? src.style : DEFAULTS.style,
     providers: {},
     res: [],
     max: clampInt(src.max, 5, 100, DEFAULTS.max),
@@ -84,10 +84,11 @@ function normalize(raw) {
     noCam: bool(src.noCam, DEFAULTS.noCam),
     sort: ['quality', 'seeders', 'size'].includes(src.sort) ? src.sort : DEFAULTS.sort,
     cachedOnly: bool(src.cachedOnly, DEFAULTS.cachedOnly),
-    tbUncached: bool(src.tbUncached, DEFAULTS.tbUncached),
+    uncached: bool(src.uncached, DEFAULTS.uncached),
     preferEfficient: bool(src.preferEfficient, DEFAULTS.preferEfficient),
     lang: typeof src.lang === 'string' ? src.lang.slice(0, 12) : '',
     prowlarr: { url: '', key: '' },
+    torznab: { url: '', key: '' },
   };
 
   for (const id of PROVIDER_IDS) {
@@ -103,13 +104,18 @@ function normalize(raw) {
     cfg.prowlarr.url = String(src.prowlarr.url || '').replace(/\/+$/, '').slice(0, 200);
     cfg.prowlarr.key = String(src.prowlarr.key || '').slice(0, 200);
   }
-  if (!cfg.prowlarr.url || !cfg.prowlarr.key) {
-    cfg.providers.prowlarr = false;
+  if (!cfg.prowlarr.url || !cfg.prowlarr.key) cfg.providers.prowlarr = false;
+
+  if (src.torznab && typeof src.torznab === 'object') {
+    cfg.torznab.url = String(src.torznab.url || '').replace(/\/+$/, '').slice(0, 300);
+    cfg.torznab.key = String(src.torznab.key || '').slice(0, 200);
   }
-  if (!cfg.tb) {
-    // No debrid key -> the only sensible mode is P2P.
+  if (!cfg.torznab.url) cfg.providers.torznab = false;
+
+  if (!cfg.key) {
     if (cfg.mode === 'debrid') cfg.mode = 'hybrid';
     cfg.cachedOnly = false;
+    cfg.uncached = false;
   }
 
   return cfg;
@@ -118,4 +124,4 @@ function normalize(raw) {
 /** Config used when someone hits the bare /manifest.json */
 const FALLBACK = normalize({});
 
-module.exports = { DEFAULTS, PROVIDER_IDS, RESOLUTIONS, normalize, FALLBACK };
+module.exports = { DEFAULTS, PROVIDER_IDS, RESOLUTIONS, SERVICES, normalize, FALLBACK };

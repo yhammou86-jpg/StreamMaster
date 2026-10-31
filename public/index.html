@@ -4,260 +4,265 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Hydra — One addon. Every source.</title>
-<meta name="description" content="Hydra is a Stremio and Nuvio addon that aggregates public trackers, checks TorBox cache in one batch call, and falls back to native P2P. Free to self-host on Vercel." />
+<meta name="description" content="Hydra is a Stremio and Nuvio addon that aggregates public trackers and Torznab indexers, checks your debrid cache in one batch call, and falls back to native P2P. Free to self-host on Vercel." />
 <meta property="og:title" content="Hydra — One addon. Every source." />
-<meta property="og:description" content="TorBox debrid + native P2P for Stremio and Nuvio. Zero dependencies, free to host." />
+<meta property="og:description" content="TorBox and Real-Debrid plus native P2P for Stremio and Nuvio. Zero dependencies, free to host." />
 <meta property="og:image" content="/logo.svg" />
 <link rel="icon" href="/logo.svg" type="image/svg+xml" />
 <style>
   :root{
-    --bg:#07080b;
-    --bg2:#0a0c12;
-    --panel:rgba(255,255,255,.035);
-    --panel2:rgba(255,255,255,.055);
-    --line:rgba(255,255,255,.085);
-    --line2:rgba(255,255,255,.14);
-    --text:#eef1f7;
-    --muted:#8b93a7;
-    --dim:#5d6478;
-    --violet:#7c5cff;
-    --cyan:#22d3ee;
-    --pink:#f472b6;
-    --green:#34d399;
-    --radius:16px;
-    --maxw:1120px;
+    --bg:#0B0908; --card:#15110E; --card2:#1B1613; --sunken:#0F0C0A;
+    --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.13);
+    --gold:#E9C46A; --gold-hi:#F4D488; --gold-dim:rgba(233,196,106,.09); --gold-line:rgba(233,196,106,.45);
+    --text:#F4EFE6; --muted:#9B9187; --dim:#6B635B;
+    --green:#5FD08A; --violet:#8B5CF6;
+    --maxw:1080px;
     --font:-apple-system,BlinkMacSystemFont,"Segoe UI Variable Display","Segoe UI",Inter,system-ui,sans-serif;
     --mono:ui-monospace,"SF Mono","Cascadia Code","JetBrains Mono",Menlo,monospace;
   }
   *{box-sizing:border-box;margin:0;padding:0}
   html{scroll-behavior:smooth}
-  body{
-    background:var(--bg);color:var(--text);font-family:var(--font);
-    -webkit-font-smoothing:antialiased;line-height:1.55;overflow-x:hidden;
-  }
+  body{background:var(--bg);color:var(--text);font-family:var(--font);line-height:1.55;
+       -webkit-font-smoothing:antialiased;overflow-x:hidden}
   a{color:inherit;text-decoration:none}
-  ::selection{background:rgba(124,92,255,.35)}
+  ::selection{background:rgba(233,196,106,.25)}
 
-  /* ---------- ambient background ---------- */
-  .aurora{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
-  .blob{position:absolute;border-radius:50%;filter:blur(110px);opacity:.32;animation:drift 26s ease-in-out infinite}
-  .b1{width:620px;height:620px;background:#5b3df5;top:-240px;left:-140px}
-  .b2{width:520px;height:520px;background:#0e7490;top:60px;right:-180px;animation-delay:-9s}
-  .b3{width:460px;height:460px;background:#9d174d;top:640px;left:38%;animation-delay:-17s;opacity:.2}
-  @keyframes drift{0%,100%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(40px,-50px,0) scale(1.12)}}
-  .grid{
-    position:fixed;inset:0;z-index:0;pointer-events:none;
-    background-image:linear-gradient(rgba(255,255,255,.022) 1px,transparent 1px),
-                     linear-gradient(90deg,rgba(255,255,255,.022) 1px,transparent 1px);
-    background-size:64px 64px;
-    mask-image:radial-gradient(ellipse 80% 55% at 50% 0%,#000 30%,transparent 78%);
-    -webkit-mask-image:radial-gradient(ellipse 80% 55% at 50% 0%,#000 30%,transparent 78%);
-  }
+  .glow{position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden}
+  .glow i{position:absolute;border-radius:50%;filter:blur(130px);opacity:.15;animation:drift 28s ease-in-out infinite}
+  .glow i:nth-child(1){width:600px;height:600px;background:#E9C46A;top:-280px;left:-160px}
+  .glow i:nth-child(2){width:480px;height:480px;background:#7C5CFF;top:80px;right:-200px;opacity:.13;animation-delay:-10s}
+  .glow i:nth-child(3){width:420px;height:420px;background:#0E7490;top:900px;left:40%;opacity:.1;animation-delay:-18s}
+  @keyframes drift{0%,100%{transform:translate3d(0,0,0) scale(1)}50%{transform:translate3d(36px,-44px,0) scale(1.1)}}
+  .grid{position:fixed;inset:0;z-index:0;pointer-events:none;
+    background-image:linear-gradient(rgba(255,255,255,.02) 1px,transparent 1px),
+                     linear-gradient(90deg,rgba(255,255,255,.02) 1px,transparent 1px);
+    background-size:68px 68px;
+    mask-image:radial-gradient(ellipse 80% 50% at 50% 0%,#000 30%,transparent 76%);
+    -webkit-mask-image:radial-gradient(ellipse 80% 50% at 50% 0%,#000 30%,transparent 76%)}
   .wrap{position:relative;z-index:1;max-width:var(--maxw);margin:0 auto;padding:0 24px}
 
-  /* ---------- nav ---------- */
-  nav{position:sticky;top:0;z-index:40;backdrop-filter:blur(18px);background:rgba(7,8,11,.72);border-bottom:1px solid var(--line)}
-  .nav-in{max-width:var(--maxw);margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:14px}
+  nav{position:sticky;top:0;z-index:40;backdrop-filter:blur(16px);
+      background:rgba(11,9,8,.8);border-bottom:1px solid var(--line)}
+  .nav-in{max-width:var(--maxw);margin:0 auto;padding:14px 24px;display:flex;align-items:center;gap:12px}
   .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:-.02em;font-size:17px}
   .brand img{width:28px;height:28px;border-radius:8px}
   .nav-links{display:flex;gap:26px;margin-left:auto;font-size:14px;color:var(--muted)}
-  .nav-links a:hover{color:var(--text)}
-  .nav-cta{
-    margin-left:8px;padding:9px 18px;border-radius:10px;font-size:14px;font-weight:600;
-    background:linear-gradient(135deg,var(--violet),#5b3df5);color:#fff;
-    box-shadow:0 6px 22px -8px rgba(124,92,255,.9);transition:transform .18s,box-shadow .18s;
-  }
-  .nav-cta:hover{transform:translateY(-1px);box-shadow:0 10px 28px -8px rgba(124,92,255,1)}
-  @media(max-width:820px){.nav-links{display:none}}
+  .nav-links a:hover{color:var(--gold)}
+  .nav-cta{margin-left:6px;padding:9px 18px;border-radius:10px;font-size:14px;font-weight:600;
+           background:var(--gold);color:#1A1410;transition:.16s}
+  .nav-cta:hover{background:var(--gold-hi);transform:translateY(-1px)}
+  @media(max-width:860px){.nav-links{display:none}}
 
-  /* ---------- hero ---------- */
-  header.hero{padding:96px 0 64px;text-align:center}
-  .pill{
-    display:inline-flex;align-items:center;gap:8px;padding:6px 14px 6px 8px;border-radius:100px;
-    border:1px solid var(--line2);background:var(--panel);font-size:12.5px;color:var(--muted);
-    margin-bottom:28px;
-  }
+  header{padding:92px 0 60px;text-align:center}
+  .pill{display:inline-flex;align-items:center;gap:8px;padding:6px 14px 6px 10px;border-radius:100px;
+        border:1px solid var(--line2);background:rgba(255,255,255,.03);font-size:12.5px;color:var(--muted);
+        margin-bottom:26px}
   .pill b{color:var(--text);font-weight:600}
-  .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 10px var(--green);animation:pulse 2.4s infinite}
-  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-  h1{
-    font-size:clamp(40px,7.2vw,76px);line-height:1.03;letter-spacing:-.038em;font-weight:800;
-    max-width:15ch;margin:0 auto 22px;
-  }
-  h1 .grad{
-    background:linear-gradient(100deg,#22d3ee 0%,#7c5cff 42%,#f472b6 100%);
-    -webkit-background-clip:text;background-clip:text;color:transparent;
-  }
-  .lede{font-size:clamp(16px,2vw,19px);color:var(--muted);max-width:58ch;margin:0 auto 34px;line-height:1.6}
+  .pulse{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 9px var(--green);
+         animation:pulse 2.4s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+  h1{font-size:clamp(40px,7vw,74px);line-height:1.04;letter-spacing:-.04em;font-weight:800;
+     max-width:15ch;margin:0 auto 20px}
+  h1 em{font-style:normal;background:linear-gradient(100deg,#E9C46A 0%,#F4D488 45%,#E9A06A 100%);
+        -webkit-background-clip:text;background-clip:text;color:transparent}
+  .lede{font-size:clamp(15.5px,1.9vw,18.5px);color:var(--muted);max-width:58ch;margin:0 auto 32px;line-height:1.65}
   .lede strong{color:var(--text);font-weight:600}
-  .cta-row{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
-  .btn{
-    display:inline-flex;align-items:center;gap:9px;padding:14px 26px;border-radius:12px;
-    font-size:15px;font-weight:600;border:1px solid transparent;cursor:pointer;
-    transition:transform .18s,background .18s,border-color .18s;
-  }
-  .btn:active{transform:scale(.985)}
-  .btn-primary{background:linear-gradient(135deg,var(--violet),#5b3df5);color:#fff;box-shadow:0 10px 34px -12px rgba(124,92,255,.95)}
-  .btn-primary:hover{transform:translateY(-2px)}
-  .btn-ghost{background:var(--panel);border-color:var(--line2);color:var(--text)}
-  .btn-ghost:hover{background:var(--panel2);border-color:rgba(255,255,255,.22)}
-  .hint{margin-top:18px;font-size:13px;color:var(--dim)}
-  .hint code{font-family:var(--mono);font-size:12px;color:var(--muted);background:var(--panel);padding:3px 7px;border-radius:6px;border:1px solid var(--line)}
+  .cta{display:flex;gap:11px;justify-content:center;flex-wrap:wrap}
+  .btn{display:inline-flex;align-items:center;gap:9px;padding:14px 26px;border-radius:12px;font-size:15px;
+       font-weight:600;border:1px solid transparent;transition:.18s;cursor:pointer}
+  .btn-gold{background:var(--gold);color:#1A1410;box-shadow:0 10px 30px -12px rgba(233,196,106,.8)}
+  .btn-gold:hover{background:var(--gold-hi);transform:translateY(-2px)}
+  .btn-ghost{background:rgba(255,255,255,.035);border-color:var(--line2);color:var(--text)}
+  .btn-ghost:hover{background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.22)}
+  .sub-hint{margin-top:16px;font-size:13px;color:var(--dim)}
 
-  /* ---------- stats ---------- */
-  .stats{
-    display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);
-    border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;margin:56px 0 0;
-  }
-  .stat{background:var(--bg2);padding:22px 18px;text-align:center}
-  .stat b{display:block;font-size:26px;letter-spacing:-.03em;font-weight:700;margin-bottom:4px}
-  .stat span{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);
+         border:1px solid var(--line);border-radius:16px;overflow:hidden;margin-top:52px}
+  .stat{background:var(--card);padding:22px 16px;text-align:center}
+  .stat b{display:block;font-size:25px;letter-spacing:-.03em;font-weight:700;margin-bottom:3px;color:var(--gold)}
+  .stat span{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}
   @media(max-width:720px){.stats{grid-template-columns:repeat(2,1fr)}}
 
-  /* ---------- sections ---------- */
-  section{padding:88px 0}
-  .sec-head{max-width:62ch;margin-bottom:44px}
-  .eyebrow{
-    font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;
-    color:var(--violet);margin-bottom:14px;
-  }
-  h2{font-size:clamp(28px,4vw,40px);letter-spacing:-.03em;line-height:1.12;font-weight:750;margin-bottom:14px}
-  .sec-head p{color:var(--muted);font-size:16px;line-height:1.65}
+  section{padding:84px 0}
+  .head{max-width:62ch;margin-bottom:42px}
+  .eyebrow{font-size:11px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;
+           color:var(--gold);margin-bottom:13px}
+  h2{font-size:clamp(27px,3.8vw,38px);letter-spacing:-.03em;line-height:1.14;font-weight:750;margin-bottom:13px}
+  .head p{color:var(--muted);font-size:15.5px;line-height:1.65}
 
-  /* ---------- pipeline ---------- */
-  .pipe{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
-  .step{
-    position:relative;padding:24px 20px;border-radius:14px;background:var(--panel);
-    border:1px solid var(--line);transition:border-color .2s,background .2s;
-  }
-  .step:hover{border-color:var(--line2);background:var(--panel2)}
-  .step .n{
-    font-family:var(--mono);font-size:11px;color:var(--violet);letter-spacing:.1em;margin-bottom:14px;
-    display:flex;align-items:center;gap:8px;
-  }
-  .step .n::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(124,92,255,.5),transparent)}
-  .step h3{font-size:15.5px;font-weight:650;margin-bottom:8px;letter-spacing:-.01em}
-  .step p{font-size:13.5px;color:var(--muted);line-height:1.6}
+  /* preview card */
+  .preview{display:grid;grid-template-columns:1fr 1fr;gap:26px;align-items:center}
+  @media(max-width:860px){.preview{grid-template-columns:1fr}}
+  .screen{background:#0A0908;border:1px solid var(--line);border-radius:16px;padding:22px;
+          position:relative;overflow:hidden}
+  .screen::before{content:"";position:absolute;inset:0;
+    background:radial-gradient(ellipse at 20% 0%,rgba(233,196,106,.07),transparent 60%);pointer-events:none}
+  .scard{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.07);border-radius:10px;
+         padding:14px 16px;font-size:14.5px;line-height:1.75;margin-bottom:10px}
+  .scard .b{font-weight:700;color:#fff}
+  .scard .s{color:#C9C1B6}
+  .scard:last-child{margin-bottom:0}
+  .badge{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:4px;
+         background:rgba(139,92,246,.22);color:#C4B5FD;vertical-align:middle;margin:0 3px}
+  .badge.gold{background:rgba(233,196,106,.18);color:var(--gold-hi)}
+
+  .pipe{display:grid;grid-template-columns:repeat(4,1fr);gap:13px}
+  .step{padding:22px 18px;border-radius:14px;background:var(--card);border:1px solid var(--line);transition:.2s}
+  .step:hover{border-color:rgba(233,196,106,.28);background:var(--card2)}
+  .step .n{font-family:var(--mono);font-size:11px;color:var(--gold);letter-spacing:.1em;margin-bottom:13px;
+           display:flex;align-items:center;gap:8px}
+  .step .n::after{content:"";flex:1;height:1px;background:linear-gradient(90deg,rgba(233,196,106,.4),transparent)}
+  .step h3{font-size:15px;font-weight:650;margin-bottom:7px;letter-spacing:-.01em}
+  .step p{font-size:13px;color:var(--muted);line-height:1.6}
   @media(max-width:900px){.pipe{grid-template-columns:repeat(2,1fr)}}
   @media(max-width:560px){.pipe{grid-template-columns:1fr}}
 
-  /* ---------- features ---------- */
-  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-  .card{
-    padding:26px 24px;border-radius:var(--radius);background:var(--panel);border:1px solid var(--line);
-    transition:transform .22s,border-color .22s,background .22s;
-  }
-  .card:hover{transform:translateY(-3px);border-color:var(--line2);background:var(--panel2)}
-  .ico{
-    width:38px;height:38px;border-radius:10px;display:grid;place-items:center;margin-bottom:16px;
-    background:linear-gradient(140deg,rgba(124,92,255,.22),rgba(34,211,238,.14));
-    border:1px solid rgba(124,92,255,.28);font-size:18px;
-  }
-  .card h3{font-size:15.5px;font-weight:650;margin-bottom:8px;letter-spacing:-.01em}
-  .card p{font-size:13.5px;color:var(--muted);line-height:1.65}
+  .cards{display:grid;grid-template-columns:repeat(3,1fr);gap:15px}
+  .c{padding:24px 22px;border-radius:16px;background:var(--card);border:1px solid var(--line);transition:.2s}
+  .c:hover{transform:translateY(-3px);border-color:rgba(233,196,106,.26);background:var(--card2)}
+  .c .ico{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;margin-bottom:14px;
+          background:var(--gold-dim);border:1px solid rgba(233,196,106,.25);font-size:17px}
+  .c h3{font-size:15px;font-weight:650;margin-bottom:7px;letter-spacing:-.01em}
+  .c p{font-size:13px;color:var(--muted);line-height:1.65}
   @media(max-width:900px){.cards{grid-template-columns:repeat(2,1fr)}}
-  @media(max-width:600px){.cards{grid-template-columns:1fr}}
+  @media(max-width:620px){.cards{grid-template-columns:1fr}}
 
-  /* ---------- modes ---------- */
-  .modes{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-  .mode{
-    padding:28px 24px;border-radius:var(--radius);border:1px solid var(--line);
-    background:linear-gradient(180deg,rgba(255,255,255,.05),rgba(255,255,255,.015));
-    position:relative;overflow:hidden;
-  }
-  .mode::before{content:"";position:absolute;inset:0 0 auto;height:2px;background:var(--accent,var(--violet));opacity:.8}
-  .mode h3{font-size:17px;font-weight:700;margin-bottom:6px;display:flex;align-items:center;gap:9px}
-  .mode .tag{
-    font-family:var(--mono);font-size:10.5px;padding:2px 7px;border-radius:5px;
-    background:rgba(255,255,255,.07);color:var(--muted);font-weight:500;letter-spacing:.03em;
-  }
-  .mode p{font-size:13.5px;color:var(--muted);line-height:1.65;margin-top:10px}
-  .mode ul{list-style:none;margin-top:16px;display:grid;gap:8px}
-  .mode li{font-size:13px;color:var(--muted);display:flex;gap:9px;align-items:flex-start}
-  .mode li::before{content:"→";color:var(--accent,var(--violet));font-size:12px;line-height:1.6}
+  .modes{display:grid;grid-template-columns:repeat(3,1fr);gap:15px}
+  .mode{padding:26px 22px;border-radius:16px;border:1px solid var(--line);background:var(--card);
+        position:relative;overflow:hidden}
+  .mode::before{content:"";position:absolute;inset:0 0 auto;height:2px;background:var(--acc,var(--gold));opacity:.75}
+  .mode h3{font-size:16px;font-weight:700;margin-bottom:5px;display:flex;align-items:center;gap:9px}
+  .mode .tag{font-family:var(--mono);font-size:10px;padding:2px 7px;border-radius:4px;
+             background:rgba(255,255,255,.06);color:var(--muted);letter-spacing:.04em}
+  .mode p{font-size:13px;color:var(--muted);line-height:1.6;margin-top:9px}
+  .mode ul{list-style:none;margin-top:14px;display:grid;gap:7px}
+  .mode li{font-size:12.5px;color:var(--muted);display:flex;gap:8px}
+  .mode li::before{content:"→";color:var(--acc,var(--gold));font-size:11px;line-height:1.7}
   @media(max-width:900px){.modes{grid-template-columns:1fr}}
 
-  /* ---------- sources ---------- */
-  .chips{display:flex;flex-wrap:wrap;gap:9px;margin-top:26px}
-  .chip{
-    padding:8px 15px;border-radius:100px;border:1px solid var(--line);background:var(--panel);
-    font-size:13px;color:var(--muted);transition:.2s;
-  }
-  .chip:hover{border-color:rgba(124,92,255,.5);color:var(--text);background:rgba(124,92,255,.08)}
-  .chip.on{border-color:rgba(52,211,153,.4);color:#a7f3d0;background:rgba(52,211,153,.07)}
+  .tiers{display:grid;gap:18px;margin-top:8px}
+  .tier{display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+  .tier-label{font-family:var(--mono);font-size:10.5px;color:var(--dim);width:100%;letter-spacing:.08em;
+              text-transform:uppercase;margin-bottom:-4px}
+  .chip{padding:8px 15px;border-radius:100px;border:1px solid var(--line);background:var(--card);
+        font-size:13px;color:var(--muted);transition:.18s}
+  .chip:hover{border-color:rgba(233,196,106,.4);color:var(--text)}
+  .chip.a{border-color:rgba(233,196,106,.32);color:var(--gold-hi);background:var(--gold-dim)}
+  .chip.b{border-color:rgba(95,208,138,.26);color:#A7E8C0}
+  .chip.c{border-color:rgba(139,92,246,.3);color:#C4B5FD}
 
-  /* ---------- final cta ---------- */
-  .final{
-    text-align:center;padding:64px 32px;border-radius:24px;border:1px solid var(--line);
-    background:radial-gradient(ellipse 90% 130% at 50% 0%,rgba(124,92,255,.16),transparent 62%),var(--bg2);
-  }
-  .final h2{margin-bottom:12px}
-  .final p{color:var(--muted);margin-bottom:28px;max-width:50ch;margin-inline:auto}
+  .final{text-align:center;padding:60px 30px;border-radius:22px;border:1px solid var(--line);
+         background:radial-gradient(ellipse 90% 130% at 50% 0%,rgba(233,196,106,.12),transparent 62%),var(--card)}
+  .final h2{margin-bottom:11px}
+  .final p{color:var(--muted);margin-bottom:26px;max-width:50ch;margin-inline:auto}
 
-  footer{border-top:1px solid var(--line);padding:36px 0 48px;margin-top:40px}
-  .foot{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:center;font-size:13px;color:var(--dim)}
-  .foot a:hover{color:var(--text)}
-  .disclaimer{max-width:70ch;font-size:12px;color:#4a5165;margin-top:18px;line-height:1.6}
+  footer{border-top:1px solid var(--line);padding:34px 0 46px;margin-top:36px}
+  .foot{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap;align-items:center;
+        font-size:13px;color:var(--dim)}
+  .foot a:hover{color:var(--gold)}
+  .disc{max-width:72ch;font-size:11.5px;color:#544C45;margin-top:16px;line-height:1.65}
 
-  .reveal{opacity:0;transform:translateY(18px);transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .7s cubic-bezier(.2,.7,.2,1)}
+  .reveal{opacity:0;transform:translateY(16px);
+          transition:opacity .7s cubic-bezier(.2,.7,.2,1),transform .7s cubic-bezier(.2,.7,.2,1)}
   .reveal.in{opacity:1;transform:none}
-  @media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none}.blob{animation:none}}
+  @media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none}.glow i{animation:none}}
 </style>
 </head>
 <body>
-<div class="aurora"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div></div>
+<div class="glow"><i></i><i></i><i></i></div>
 <div class="grid"></div>
 
 <nav>
   <div class="nav-in">
     <a class="brand" href="/"><img src="/logo.svg" alt="" />Hydra</a>
     <div class="nav-links">
+      <a href="#cards">Results</a>
       <a href="#pipeline">How it works</a>
-      <a href="#features">Features</a>
-      <a href="#modes">Modes</a>
       <a href="#sources">Sources</a>
+      <a href="#modes">Modes</a>
     </div>
-    <a class="nav-cta" href="/configure">Configure</a>
+    <a class="nav-cta" href="/configure">Set up</a>
   </div>
 </nav>
 
 <div class="wrap">
-  <header class="hero">
-    <div class="pill"><span class="dot"></span>Works in <b>Stremio</b> and <b>Nuvio</b></div>
-    <h1>One addon.<br /><span class="grad">Every source.</span></h1>
+  <header>
+    <div class="pill"><span class="pulse"></span>Works in <b>Stremio</b> and <b>Nuvio</b></div>
+    <h1>One addon.<br /><em>Every source.</em></h1>
     <p class="lede">
-      Hydra aggregates public trackers, probes <strong>TorBox</strong> cache in a single batch call,
-      and falls back to <strong>native P2P</strong> — so there is always something to press play on.
-      No accounts required to start.
+      Hydra searches public trackers and <strong>Torznab indexers</strong>, checks your debrid
+      cache in a single batch call, and falls back to <strong>native P2P</strong> — so there is
+      always something to press play on.
     </p>
-    <div class="cta-row">
-      <a class="btn btn-primary" href="/configure">
-        Build your addon
-        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 8h10M9 4l4 4-4 4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <div class="cta">
+      <a class="btn btn-gold" href="/configure">
+        Set up your addon
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M3 8h10M9 4l4 4-4 4" stroke-linecap="round" stroke-linejoin="round"/></svg>
       </a>
-      <a class="btn btn-ghost" href="#pipeline">See how it works</a>
+      <a class="btn btn-ghost" href="#cards">See the result cards</a>
     </div>
-    <p class="hint">Takes about 40 seconds · no signup · self-host free on Vercel</p>
+    <p class="sub-hint">About 40 seconds · no signup · self-host free on Vercel</p>
 
     <div class="stats">
-      <div class="stat"><b>9</b><span>Sources</span></div>
+      <div class="stat"><b>10</b><span>Sources</span></div>
+      <div class="stat"><b>2</b><span>Debrid services</span></div>
       <div class="stat"><b>1</b><span>Cache probe</span></div>
       <div class="stat"><b>0</b><span>Dependencies</span></div>
-      <div class="stat"><b>~50ms</b><span>Cold start</span></div>
     </div>
   </header>
 
+  <section id="cards" class="reveal">
+    <div class="head">
+      <div class="eyebrow">Results</div>
+      <h2>Every result tells you what it is</h2>
+      <p>One fact per line, so you can choose in a glance instead of decoding a comma-separated wall. Resolution, availability, size, source, codec, audio and tracker — all in the card.</p>
+    </div>
+    <div class="preview">
+      <div class="screen">
+        <div class="scard">
+          <div><span class="b">🔥 4K</span> | <span class="b">⚡ Cached</span> | <span class="b">🛰️ 6.71 GB</span></div>
+          <div class="s">🎬 Sugar <span class="badge">S02E03</span></div>
+          <div class="s">💎 WEB-DL · HEVC · DV</div>
+          <div class="s">🔊 Atmos · DD+</div>
+          <div class="s">📚 TorBox Library</div>
+        </div>
+        <div class="scard">
+          <div><span class="b">🔥 1080p</span> | <span class="b">👥 482</span> | <span class="b">🛰️ 1.77 GB</span></div>
+          <div class="s">🎬 Sugar <span class="badge">S02E03</span></div>
+          <div class="s">💎 WEB-DL · x264</div>
+          <div class="s">📚 EZTV</div>
+        </div>
+      </div>
+      <div>
+        <div class="cards" style="grid-template-columns:1fr;gap:12px">
+          <div class="c" style="padding:18px 20px">
+            <h3 style="margin-bottom:4px">⚡ Cached beats everything</h3>
+            <p>Anything your debrid service already holds is ranked first and plays instantly — no swarm, no buffering.</p>
+          </div>
+          <div class="c" style="padding:18px 20px">
+            <h3 style="margin-bottom:4px">👥 Liveness over hype</h3>
+            <p>A 4K REMUX with one seeder is not better than a 1080p with ninety. Seed count is scored as a penalty, not a tie-breaker.</p>
+          </div>
+          <div class="c" style="padding:18px 20px">
+            <h3 style="margin-bottom:4px">💎 Parsed, not guessed</h3>
+            <p>Release names are decoded into resolution, source, codec, HDR, audio and group — then rendered as structured lines.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
   <section id="pipeline" class="reveal">
-    <div class="sec-head">
+    <div class="head">
       <div class="eyebrow">Pipeline</div>
       <h2>Four stages, one request</h2>
-      <p>Every stream request runs the same deterministic pipeline under a hard time budget. Nothing waits on a slow tracker — whatever has arrived by the deadline gets ranked and returned.</p>
+      <p>Every stream request runs the same deterministic pipeline under a hard time budget. Nothing waits on a slow tracker — whatever arrives by the deadline gets ranked and returned.</p>
     </div>
     <div class="pipe">
       <div class="step">
         <div class="n">01 / RESOLVE</div>
         <h3>Identify the title</h3>
-        <p>The IMDb id from your client is resolved through Cinemeta into a title, year and episode — cached for 12 hours.</p>
+        <p>The IMDb id from your client is resolved through Cinemeta into a title, year and episode — cached for twelve hours.</p>
       </div>
       <div class="step">
         <div class="n">02 / FAN OUT</div>
@@ -267,117 +272,128 @@
       <div class="step">
         <div class="n">03 / PROBE</div>
         <h3>One cache call</h3>
-        <p>Every unique infohash goes to TorBox in a single <code style="font-family:var(--mono);font-size:12px">checkcached</code> request. Cached results jump to the top.</p>
+        <p>Every unique infohash goes to your debrid service in a single request. Cached results jump to the top.</p>
       </div>
       <div class="step">
         <div class="n">04 / RANK</div>
         <h3>Score and format</h3>
-        <p>Resolution, source, codec, seeders and cache state combine into a single score. Deduplicated across trackers.</p>
+        <p>Resolution, source, codec, seeders and cache state combine into one score. Duplicates merge across trackers.</p>
       </div>
     </div>
   </section>
 
-  <section id="features" class="reveal">
-    <div class="sec-head">
+  <section class="reveal">
+    <div class="head">
       <div class="eyebrow">Engineering</div>
       <h2>Built for the free tier</h2>
       <p>Most addons fall over on serverless because they assume a long-running process. Hydra is designed around the opposite constraint.</p>
     </div>
     <div class="cards">
-      <div class="card">
+      <div class="c">
         <div class="ico">⚡</div>
         <h3>Batch cache probing</h3>
-        <p>A hundred hashes checked in one HTTP call instead of a hundred. This is the single biggest speed win available from a debrid API.</p>
+        <p>A hundred hashes checked in one HTTP call instead of a hundred. The single biggest speed win a debrid API allows.</p>
       </div>
-      <div class="card">
+      <div class="c">
         <div class="ico">🔗</div>
         <h3>Lazy resolution</h3>
-        <p>Stream URLs point at Hydra, not TorBox. The direct link is minted the instant you press play — no torrents added to your account for results you never open.</p>
+        <p>Stream URLs point at Hydra, not at your debrid account. The direct link is minted the instant you press play.</p>
       </div>
-      <div class="card">
+      <div class="c">
         <div class="ico">🌊</div>
         <h3>Native P2P</h3>
-        <p>Uncached results are returned as an infohash plus trackers. Your client does the peer work, so Hydra never proxies a byte of video.</p>
+        <p>Uncached results return an infohash plus trackers. Your client does the peer work, so Hydra never proxies video.</p>
       </div>
-      <div class="card">
+      <div class="c">
         <div class="ico">📦</div>
         <h3>Zero dependencies</h3>
-        <p>No SDK, no axios, no cheerio. Pure Node built-ins, which means a ~50ms cold start and nothing to break on a supply-chain update.</p>
+        <p>No SDK, no axios, no cheerio. Pure Node built-ins: a ~50ms cold start and nothing to break on a supply-chain update.</p>
       </div>
-      <div class="card">
+      <div class="c">
         <div class="ico">🔒</div>
         <h3>Opaque config URLs</h3>
-        <p>Set one environment variable and your entire configuration — API key included — is AES-256-GCM encrypted inside the addon URL.</p>
+        <p>Set one environment variable and your entire configuration — API key included — is AES-256-GCM encrypted inside the link.</p>
       </div>
-      <div class="card">
-        <div class="ico">🎯</div>
-        <h3>Release intelligence</h3>
-        <p>Names are parsed into resolution, source, codec, HDR, audio and release group. CAM rips with 900 seeders never outrank a 4K REMUX.</p>
+      <div class="c">
+        <div class="ico">🩺</div>
+        <h3>Source diagnostics</h3>
+        <p>Trackers are blocked unevenly by network. A built-in probe tells you which sources actually answer for you, then you keep those.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="sources" class="reveal">
+    <div class="head">
+      <div class="eyebrow">Coverage</div>
+      <h2>Ten sources, tiered by reliability</h2>
+      <p>Public trackers are fragile by nature, so Hydra treats them as interchangeable and tells you which are alive. The top tier carries most of the weight; the third tier is where private trackers live.</p>
+    </div>
+    <div class="tiers">
+      <div class="tier">
+        <div class="tier-label">Tier 1 — reliable from anywhere</div>
+        <span class="chip a">Knaben · meta-search</span>
+        <span class="chip a">YTS · movies</span>
+        <span class="chip a">EZTV · series</span>
+        <span class="chip a">SolidTorrents</span>
+        <span class="chip a">Nyaa · anime</span>
+      </div>
+      <div class="tier">
+        <div class="tier-label">Tier 2 — depends on your network</div>
+        <span class="chip b">The Pirate Bay</span>
+        <span class="chip b">AniTosho</span>
+        <span class="chip b">RARBG</span>
+      </div>
+      <div class="tier">
+        <div class="tier-label">Tier 3 — bring your own indexers</div>
+        <span class="chip c">Torznab · Jackett</span>
+        <span class="chip c">Prowlarr</span>
+        <span class="chip c">Any Newznab feed</span>
       </div>
     </div>
   </section>
 
   <section id="modes" class="reveal">
-    <div class="sec-head">
+    <div class="head">
       <div class="eyebrow">Your choice</div>
       <h2>Debrid, P2P, or both</h2>
       <p>You should not have to pick a side. Hydra runs whichever path makes sense for each result, and you decide how far it is allowed to go.</p>
     </div>
     <div class="modes">
-      <div class="mode" style="--accent:#7c5cff">
+      <div class="mode" style="--acc:#E9C46A">
         <h3>Hybrid <span class="tag">default</span></h3>
-        <p>Cached results stream from TorBox instantly. Everything else is handed to your client as P2P.</p>
+        <p>Cached results stream from your debrid service instantly. Everything else is handed to your client as P2P.</p>
         <ul>
           <li>Maximum number of playable results</li>
           <li>Cached first, peers as backup</li>
           <li>Best choice for most people</li>
         </ul>
       </div>
-      <div class="mode" style="--accent:#22d3ee">
+      <div class="mode" style="--acc:#5FD08A">
         <h3>Debrid only <span class="tag">fastest</span></h3>
-        <p>Only show what TorBox can serve right now. No buffering, no peers, no waiting on a swarm.</p>
+        <p>Only show what your service can serve right now. No buffering, no peers, no waiting on a swarm.</p>
         <ul>
           <li>Instant start on every result</li>
           <li>Zero bandwidth from your connection</li>
-          <li>Needs an active TorBox plan</li>
+          <li>Needs an active debrid plan</li>
         </ul>
       </div>
-      <div class="mode" style="--accent:#34d399">
+      <div class="mode" style="--acc:#8B5CF6">
         <h3>P2P only <span class="tag">no account</span></h3>
-        <p>TorBox is never contacted. Every result is an infohash and your client streams straight from the swarm.</p>
+        <p>No debrid service is ever contacted. Every result is an infohash and your client streams straight from the swarm.</p>
         <ul>
           <li>Works with no subscription at all</li>
-          <li>Nothing is stored on any server</li>
+          <li>Nothing stored on any server</li>
           <li>Your IP is visible to peers</li>
         </ul>
       </div>
     </div>
   </section>
 
-  <section id="sources" class="reveal">
-    <div class="sec-head">
-      <div class="eyebrow">Coverage</div>
-      <h2>Nine sources, one list</h2>
-      <p>Toggle any of them on or off. Knaben alone indexes dozens of trackers behind a single API, which is why it carries most of the weight.</p>
-    </div>
-    <div class="chips">
-      <span class="chip on">Knaben · meta-search</span>
-      <span class="chip on">YTS · movies</span>
-      <span class="chip on">EZTV · series</span>
-      <span class="chip on">SolidTorrents</span>
-      <span class="chip on">Nyaa · anime</span>
-      <span class="chip on">The Pirate Bay</span>
-      <span class="chip on">AniTosho</span>
-      <span class="chip">RARBG</span>
-      <span class="chip">Prowlarr · private</span>
-    </div>
-  </section>
-
   <section class="reveal">
     <div class="final">
       <h2>Ready in one minute</h2>
-      <p>Pick a mode, paste a key if you have one, and Hydra generates a personal addon URL. Paste it into Stremio or Nuvio and you are done.</p>
-      <a class="btn btn-primary" href="/configure">Build your addon</a>
+      <p>Pick a debrid service or skip it, test your sources, and Hydra generates a personal addon URL. Paste it into Stremio or Nuvio and you are done.</p>
+      <a class="btn btn-gold" href="/configure">Set up your addon</a>
     </div>
   </section>
 
@@ -388,32 +404,33 @@
         <span>Hydra · MIT licensed · self-hosted</span>
       </div>
       <div style="display:flex;gap:22px">
-        <a href="/configure">Configure</a>
+        <a href="/configure">Set up</a>
         <a href="/health">Status</a>
         <a href="/manifest.json">Manifest</a>
       </div>
     </div>
-    <p class="disclaimer">
+    <p class="disc">
       Hydra is an indexer. It does not host, store, upload or distribute any media. All metadata and
       torrent references are provided by third-party public services, and debrid playback is performed
-      entirely by your own TorBox account. You are responsible for complying with the laws of your
-      jurisdiction and with the terms of any service you connect.
+      entirely by your own account. You are responsible for complying with the laws of your jurisdiction
+      and with the terms of any service you connect.
     </p>
   </footer>
 </div>
 
 <script>
   const io = new IntersectionObserver((entries) => {
-    for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    for (const e of entries) {
+      if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    }
   }, { threshold: 0.08, rootMargin: '0px 0px -60px 0px' });
   document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
 
-  // Live status dot
-  fetch('/health').then(r => r.json()).then(d => {
+  fetch('/health').then((r) => r.json()).then((d) => {
     if (!d.ok) throw new Error();
   }).catch(() => {
-    const dot = document.querySelector('.dot');
-    if (dot) { dot.style.background = '#f87171'; dot.style.boxShadow = '0 0 10px #f87171'; }
+    const p = document.querySelector('.pulse');
+    if (p) { p.style.background = '#F0736B'; p.style.boxShadow = '0 0 9px #F0736B'; }
   });
 </script>
 </body>

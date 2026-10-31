@@ -71,6 +71,16 @@ function firstMatch(map, text) {
   return { label: '', weight: 0 };
 }
 
+/** Collect up to `max` distinct labels — releases often carry two audio formats. */
+function collectMatches(map, text, max = 2) {
+  const found = [];
+  for (const [re, label] of map) {
+    if (found.length >= max) break;
+    if (re.test(text) && !found.includes(label)) found.push(label);
+  }
+  return found;
+}
+
 function cleanTitle(raw) {
   return String(raw || '')
     .replace(/\.(mkv|mp4|avi|mov|m4v|webm)$/i, '')
@@ -85,7 +95,9 @@ function cleanTitle(raw) {
  */
 function parseRelease(name) {
   const raw = String(name || '');
-  const text = raw.replace(/[._]/g, ' ');
+  // Match against the raw name: separators in release names are dots, so
+  // stripping them would break tokens like "DDP5.1" or "S01.E02".
+  const text = raw;
 
   const res = firstMatch(RES_MAP, text);
   const source = firstMatch(SOURCE_MAP, text);
@@ -93,13 +105,16 @@ function parseRelease(name) {
   // instead of letting it fall below every labelled release.
   if (!source.label) source.weight = 45;
   const codec = firstMatch(CODEC_MAP, text);
-  const audio = firstMatch(AUDIO_MAP, text);
+  const audioTags = collectMatches(AUDIO_MAP, text, 2);
 
-  const hdr = /\b(hdr10\+?|hdr|dolby ?vision|dv|hlg)\b/i.test(text);
+  const dv = /\b(dolby ?vision|dovi)\b|\bdv\b/i.test(text);
+  const hdr10p = /\bhdr10\+|\bhdr10plus\b/i.test(text);
+  const hdr = dv || hdr10p || /\bhdr(10)?\b|\bhlg\b/i.test(text);
   const proper = /\b(proper|repack|real)\b/i.test(text);
   const threeD = /\b(3d|hsbs|half-sbs)\b/i.test(text);
 
-  const se = text.match(/\bS(\d{1,2})\s?E(\d{1,3})\b/i) || text.match(/\b(\d{1,2})x(\d{2,3})\b/);
+  const se =
+    text.match(/\bS(\d{1,2})[.\s_-]?E(\d{1,3})\b/i) || text.match(/\b(\d{1,2})x(\d{2,3})\b/);
   const season = se ? Number(se[1]) : null;
   const episode = se ? Number(se[2]) : null;
 
@@ -124,7 +139,9 @@ function parseRelease(name) {
     sourceRank: source.weight,
     isCam: BAD_SOURCE.test(text),
     codec: codec.label || '',
-    audio: audio.label || '',
+    audio: audioTags.join(' · '),
+    dv,
+    hdr10p,
     hdr,
     proper,
     threeD,

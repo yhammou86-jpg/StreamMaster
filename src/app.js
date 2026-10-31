@@ -10,20 +10,21 @@
 const { normalize, FALLBACK } = require('./config');
 const { encode, decode } = require('./codec');
 const { resolveMeta } = require('./metadata');
-const { gather } = require('./orchestrator');
+const { gather, probeAll } = require('./orchestrator');
 const { buildStreams } = require('./format');
 const { CACHED_BONUS, scoreItem } = require('./rank');
 const { ALL } = require('./providers');
-const torbox = require('./torbox');
+const debrid = require('./debrid');
+const health = require('./health');
 const cache = require('./cache');
-const { magnet } = require('./trackers');
 
-const VERSION = '1.0.0';
+const VERSION = '2.0.0';
 const ADDON_ID = 'community.hydrastream';
 
 function baseUrl(headers) {
   const h = headers || {};
-  const proto = h['x-forwarded-proto'] || (String(h.host || '').includes('localhost') ? 'http' : 'https');
+  const proto =
+    h['x-forwarded-proto'] || (String(h.host || '').includes('localhost') ? 'http' : 'https');
   const host = h['x-forwarded-host'] || h.host || 'localhost:7000';
   return `${proto}://${host}`;
 }
@@ -44,15 +45,17 @@ function jsonResponse(body, status = 200, extraHeaders = {}) {
 /* ------------------------------------------------------------------ manifest */
 
 function buildManifest(cfg, base) {
-  const modeLabel = !cfg.tb ? 'P2P' : cfg.mode === 'debrid' ? 'TorBox' : 'TorBox + P2P';
+  const svcName = cfg.key ? debrid.get(cfg.svc).name : null;
+  const modeLabel = !cfg.key ? 'P2P' : cfg.mode === 'debrid' ? svcName : `${svcName} + P2P`;
+
   return {
     id: ADDON_ID,
     version: VERSION,
     name: 'Hydra',
     description:
       `One addon, every source. ${modeLabel}. ` +
-      'Aggregates public trackers, checks TorBox cache in a single batch call, ' +
-      'and falls back to native P2P so there is always something to play.',
+      'Aggregates public trackers and Torznab indexers, checks your debrid cache in a single ' +
+      'batch call, and falls back to native P2P so there is always something to play.',
     logo: `${base}/logo.svg`,
     background: `${base}/logo.svg`,
     resources: ['stream'],
@@ -65,8 +68,9 @@ function buildManifest(cfg, base) {
 
 function handleManifest(query, headers) {
   const cfg = query && query.c ? normalize(decode(query.c)) : FALLBACK;
-  const base = baseUrl(headers);
-  return jsonResponse(buildManifest(cfg, base), 200, { 'cache-control': 'public, max-age=3600' });
+  return jsonResponse(buildManifest(cfg, baseUrl(headers)), 200, {
+    'cache-control': 'public, max-age=3600',
+  });
 }
 
 /* -------------------------------------------------------------------- stream */
@@ -81,28 +85,25 @@ async function handleStream(query, headers) {
   const cfg = normalize(decode(query.c));
   const base = baseUrl(headers);
 
-  if (!rawId || !/^tt\d+/.test(rawId)) {
-    return jsonResponse({ streams: [] });
-  }
+  if (!rawId || !/^tt\d+/.test(rawId)) return jsonResponse({ streams: [] });
 
   const meta = await resolveMeta(type, rawId);
 
   const { items, stats } = await gather(cfg, meta, {
-    budget: cfg.providers.prowlarr ? 8000 : 6500,
+    budget: cfg.providers.prowlarr || cfg.providers.torznab ? 8000 : 6500,
   });
 
   let working = items;
+  const svc = debrid.get(cfg.svc);
 
-  // --- TorBox batch cache probe (one request for every hash) --------------
-  if (cfg.tb && cfg.mode !== 'p2p' && working.length) {
+  // --- debrid batch cache probe (one request for many hashes) -------------
+  if (cfg.key && cfg.mode !== 'p2p' && working.length) {
     try {
-      const cached = await torbox.checkCached(
-        working.map((i) => i.infoHash),
-        cfg.tb
-      );
+      const cached = await svc.checkCached(cfg.key, working.map((i) => i.infoHash));
+
       for (const item of working) {
         if (cached.has(item.infoHash)) item.cached = true;
-        else if (cfg.tbUncached) item.via = 'torbox';
+        else if (cfg.uncached) item.via = 'debrid';
       }
 
       // Re-score: cached results no longer care about swarm size.
@@ -112,23 +113,18 @@ async function handleStream(query, headers) {
       working.sort((a, b) => b.score - a.score);
 
       // Mode semantics, applied only once cache state is known:
-      //   debrid     -> TorBox must be able to serve it
-      //   cachedOnly -> strictly what is already on TorBox's disk
+      //   debrid     -> the service must be able to serve it
+      //   cachedOnly -> strictly what is already on the service's disk
       if (cfg.mode === 'debrid') {
-        working = working.filter((i) => i.cached || i.via === 'torbox');
+        working = working.filter((i) => i.cached || i.via === 'debrid');
       }
-      if (cfg.cachedOnly) {
-        working = working.filter((i) => i.cached);
-      }
+      if (cfg.cachedOnly) working = working.filter((i) => i.cached);
     } catch (err) {
-      // Bad key or TorBox outage: never fail the request, degrade to P2P.
-      if (cfg.mode === 'debrid') {
-        for (const item of working) item.via = 'torbox';
-      }
-      stats.torboxError = String(err.message || err);
+      // Bad key or provider outage: never fail the request, degrade to P2P.
+      if (cfg.mode === 'debrid') for (const item of working) item.via = 'debrid';
+      stats.debridError = String(err.message || err);
     }
-  } else if (cfg.mode === 'p2p' || !cfg.tb) {
-    // Explicitly P2P-only: strip any debrid affordance.
+  } else if (cfg.mode === 'p2p' || !cfg.key) {
     working = working.map((i) => ({ ...i, cached: false, via: undefined }));
   }
 
@@ -142,6 +138,7 @@ async function handleStream(query, headers) {
     blob: query.c || encode(cfg),
     hint,
     limit: cfg.max,
+    meta,
   });
 
   return jsonResponse({ streams }, 200, {
@@ -157,62 +154,24 @@ async function handleStream(query, headers) {
 
 /* ------------------------------------------------------------------- resolve */
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
 async function handleResolve(query) {
   const cfg = normalize(decode(query.c));
   const hash = String(query.h || '').toLowerCase();
+  const plain = (status, body) => ({ status, headers: { 'content-type': 'text/plain' }, body });
 
-  if (!cfg.tb) {
-    return { status: 400, headers: { 'content-type': 'text/plain' }, body: 'No TorBox API key in config.' };
-  }
-  if (!/^[a-f0-9]{40}$/.test(hash)) {
-    return { status: 400, headers: { 'content-type': 'text/plain' }, body: 'Invalid infohash.' };
-  }
+  if (!cfg.key) return plain(400, 'No debrid API key in this configuration.');
+  if (!/^[a-f0-9]{40}$/.test(hash)) return plain(400, 'Invalid infohash.');
 
-  const hint = query.f || '';
-  const allowUncached = query.u === '1' || cfg.tbUncached;
-  const cacheKey = `tb:${hash}:${cfg.tb.slice(-10)}`;
+  const svc = debrid.get(cfg.svc);
+  const allowUncached = query.u === '1' || cfg.uncached;
 
   try {
-    let rec = cache.get(cacheKey);
-
-    if (!rec) {
-      const created = await torbox.createTorrent(cfg.tb, magnet(hash, hint || 'video'), {
-        cachedOnly: !allowUncached,
-      });
-
-      // Cached torrents are ready almost immediately; uncached ones need a
-      // short wait before files exist. Poll briefly, then give up honestly.
-      let torrent = null;
-      const deadline = Date.now() + (allowUncached ? 9000 : 3500);
-      while (Date.now() < deadline) {
-        torrent = await torbox.getTorrent(cfg.tb, created.id);
-        if (torrent && Array.isArray(torrent.files) && torrent.files.length) break;
-        await sleep(600);
-      }
-
-      const file = torrent && torbox.pickFile(torrent.files, hint);
-      if (!file) {
-        return {
-          status: 503,
-          headers: { 'content-type': 'text/plain' },
-          body: 'TorBox is still preparing this file. Try again in a few seconds.',
-        };
-      }
-      rec = { id: created.id, fileId: file.id, name: file.name };
-      cache.set(cacheKey, rec, 45 * 60 * 1000);
-    }
-
-    const url = await torbox.requestDownload(cfg.tb, rec.id, rec.fileId);
+    const url = await svc.resolve(cfg.key, hash, query.f || '', { allowUncached });
     return { status: 302, headers: { location: url, 'cache-control': 'no-store' }, body: '' };
   } catch (err) {
-    const code = err && err.code ? ` (${err.code})` : '';
-    return {
-      status: 502,
-      headers: { 'content-type': 'text/plain' },
-      body: `TorBox error${code}: ${err.message || 'unknown'}`,
-    };
+    const status = err && err.status ? err.status : 502;
+    const name = svc.name;
+    return plain(status, `${name}: ${err.message || 'unknown error'}`);
   }
 }
 
@@ -223,7 +182,7 @@ async function handleConfig({ query, body }) {
   if (query && query.c) {
     const cfg = decode(query.c);
     if (!cfg) return jsonResponse({ ok: false, error: 'Could not decode config' }, 400);
-    const safe = { ...normalize(cfg), tb: cfg.tb ? '***' : '' };
+    const safe = { ...normalize(cfg), key: cfg.key ? '***' : '' };
     return jsonResponse({ ok: true, config: safe });
   }
 
@@ -233,22 +192,30 @@ async function handleConfig({ query, body }) {
 
   if (body.action === 'verify') {
     const key = String(body.key || '').trim();
+    const svc = debrid.get(body.svc);
     if (!key) return jsonResponse({ ok: false, error: 'Missing API key' }, 400);
     try {
-      const info = await torbox.userInfo(key);
+      const info = await svc.userInfo(key);
       return jsonResponse({
         ok: true,
+        service: svc.name,
         user: {
           email: info && info.email,
-          plan: info && (info.plan ?? info.plan_id),
-          premium: !!(info && (info.premium_expires_at || info.is_subscribed)),
-          expires: info && (info.premium_expires_at || info.expires_at),
-          cooldown: info && info.cooldown_until,
+          premium: !!(info && (info.premium_expires_at || info.is_subscribed || info.premium > 0)),
+          expires:
+            info && (info.premium_expires_at || info.expiration || info.expires_at || null),
+          points: info && info.points,
         },
       });
     } catch (err) {
       return jsonResponse({ ok: false, error: err.message || 'Invalid key' }, 200);
     }
+  }
+
+  if (body.action === 'probe') {
+    const cfg = normalize(body.config);
+    const sources = await probeAll(cfg);
+    return jsonResponse({ ok: true, sources });
   }
 
   if (body.action === 'encode') {
@@ -267,6 +234,8 @@ function handleHealth() {
     name: 'Hydra',
     version: VERSION,
     providers: ALL.map((p) => ({ id: p.id, name: p.name, kinds: p.kinds })),
+    debrid: debrid.list(),
+    health: health.snapshot(),
     cacheEntries: cache.size(),
     encryptedConfig: !!process.env.CONFIG_SECRET,
     uptime: Math.round(process.uptime()),

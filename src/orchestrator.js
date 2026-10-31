@@ -4,14 +4,15 @@
  * The orchestrator: fan out, enforce a deadline, normalise, dedupe, rank.
  *
  * Design rule: this function must never reject. A stream request that returns
- * 6 good results from 3 working scrapers is a success; a 500 because one tracker
- * timed out is a bug. Everything is Promise.allSettled + per-provider timeout.
+ * six good results from three working scrapers is a success; a 500 because one
+ * tracker timed out is a bug. Everything is allSettled + per-provider timeout.
  */
 
 const { ALL } = require('./providers');
 const { parseRelease, matchesEpisode } = require('./parse');
 const { scoreItem, passesFilters, sortItems } = require('./rank');
 const { withTimeout } = require('./http');
+const health = require('./health');
 
 /** Overall budget for scraping. Vercel Hobby allows 60s; we stay far below. */
 const DEFAULT_BUDGET_MS = 7000;
@@ -53,11 +54,28 @@ function dedupe(items) {
     if (item.seeders > existing.seeders) existing.seeders = item.seeders;
     if (!existing.size && item.size) existing.size = item.size;
     if (item.title.length > existing.title.length) existing.title = item.title;
-    if (!existing.providerName.split(',').includes(item.providerName)) {
+    if (!existing.providerName.split(', ').includes(item.providerName)) {
       existing.providerName += `, ${item.providerName}`;
     }
   }
   return [...map.values()];
+}
+
+/**
+ * Run one provider, timing it and recording the outcome for diagnostics.
+ */
+async function runProvider(provider, ctx, deadline) {
+  const started = Date.now();
+  const remaining = Math.max(1200, deadline - started);
+  try {
+    const rows = await withTimeout(provider.search(ctx), remaining, provider.id);
+    const list = Array.isArray(rows) ? rows : [];
+    health.record(provider.id, { ok: true, ms: Date.now() - started, count: list.length });
+    return { id: provider.id, rows: list };
+  } catch (err) {
+    health.record(provider.id, { ok: false, ms: Date.now() - started, error: err.message });
+    return { id: provider.id, rows: [] };
+  }
 }
 
 /**
@@ -74,15 +92,8 @@ async function gather(cfg, meta, opts = {}) {
   if (!active.length || !meta.title) return { items: [], stats: { providers: 0, raw: 0, ms: 0 } };
 
   const ctx = { ...meta, cfg };
+  const settled = await Promise.allSettled(active.map((p) => runProvider(p, ctx, deadline)));
 
-  const tasks = active.map((provider) => {
-    const remaining = Math.max(1200, deadline - Date.now());
-    return withTimeout(provider.search(ctx), remaining, provider.id)
-      .then((rows) => ({ id: provider.id, rows: Array.isArray(rows) ? rows : [] }))
-      .catch(() => ({ id: provider.id, rows: [] }));
-  });
-
-  const settled = await Promise.allSettled(tasks);
   const raw = [];
   const perProvider = {};
 
@@ -114,4 +125,81 @@ async function gather(cfg, meta, opts = {}) {
   };
 }
 
-module.exports = { gather, DEFAULT_BUDGET_MS };
+/**
+ * Diagnostics: run every enabled provider against a fixed, well-seeded title and
+ * report what each one returned. Powers the "Test sources" panel.
+ */
+async function probe(cfg, meta) {
+  const active = ALL.filter((p) => cfg.providers[p.id] && p.kinds.includes(meta.kind));
+  const ctx = { ...meta, cfg };
+  const deadline = Date.now() + 9000;
+
+  const settled = await Promise.allSettled(active.map((p) => runProvider(p, ctx, deadline)));
+  const out = [];
+
+  for (let i = 0; i < active.length; i += 1) {
+    const provider = active[i];
+    const result = settled[i];
+    const rows = result.status === 'fulfilled' ? result.value.rows : [];
+    const stat = health.snapshot().find((s) => s.id === provider.id);
+    out.push({
+      id: provider.id,
+      name: provider.name,
+      count: rows.length,
+      ok: rows.length > 0,
+      avgMs: stat ? stat.avgMs : 0,
+      successRate: stat ? stat.successRate : null,
+      error: rows.length ? null : stat && stat.lastError ? stat.lastError : 'no results',
+    });
+  }
+
+  return out.sort((a, b) => b.count - a.count);
+}
+
+/**
+ * Diagnostics across both media kinds.
+ *
+ * A provider may only support movies or only series, so a single query would
+ * leave half the list untested. Run one of each and merge by provider.
+ */
+async function probeAll(cfg) {
+  const movie = {
+    kind: 'movie',
+    imdbId: 'tt1375666',
+    title: 'Inception',
+    year: 2010,
+    season: null,
+    episode: null,
+    episodeTitle: '',
+    genres: ['Action'],
+  };
+  const series = {
+    kind: 'series',
+    imdbId: 'tt0903747',
+    title: 'Breaking Bad',
+    year: 2008,
+    season: 1,
+    episode: 1,
+    episodeTitle: 'Pilot',
+    genres: ['Crime'],
+  };
+
+  const [a, b] = await Promise.all([probe(cfg, movie), probe(cfg, series)]);
+  const merged = new Map();
+
+  for (const row of [...a, ...b]) {
+    const cur = merged.get(row.id);
+    if (!cur) {
+      merged.set(row.id, { ...row });
+    } else {
+      cur.count += row.count;
+      cur.ok = cur.count > 0;
+      cur.avgMs = Math.max(cur.avgMs, row.avgMs);
+      if (row.count > 0) cur.error = null;
+    }
+  }
+
+  return [...merged.values()].sort((x, y) => y.count - x.count);
+}
+
+module.exports = { gather, probe, probeAll, DEFAULT_BUDGET_MS };
