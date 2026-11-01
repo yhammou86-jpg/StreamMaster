@@ -196,6 +196,27 @@ StremThru Torz, Sootio and Zilean are config-required: each hands you a personal
 containing your own settings, and there is no usable anonymous instance to ship. Paste that URL
 into **Your own addons** in step 2 — one per line — and Hydra will query it like any other source.
 
+Hit **Check these URLs** before relying on one. A config-required addon answers `200` with an
+empty stream list when it is not configured, which is indistinguishable from "this film has no
+results". The check reads the manifest instead: an empty `types` array or
+`configurationRequired: true` means the URL is a stub, and it says so.
+
+StremThru Torz in particular cannot ever be a built-in toggle. Its own source requires both
+indexers *and* a debrid store before it will answer:
+
+```go
+func (ud UserData) HasRequiredValues() bool {
+	if !ud.UserDataIndexers.HasRequiredValues() { return false }
+	if !ud.UserDataStores.HasRequiredValues() { return false }
+	return true
+}
+```
+
+and the live instance enforces it — an indexer with no store returns
+`400 failed to get request context: stores[0].code: missing store`. It is a Torznab client
+plus a debrid bridge, and Hydra already has both halves natively (the `torznab`/`prowlarr`
+providers and the TorBox integration), so a toggle would be a slower duplicate.
+
 Providers fail independently. If Cloudflare blocks three of them from your region, the rest
 still answer and the request still succeeds. Use **Test all sources** in step 2 to see exactly
 which ones work from your deployment.

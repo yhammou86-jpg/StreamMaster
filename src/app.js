@@ -14,6 +14,7 @@ const { gather, probeAll } = require('./orchestrator');
 const { buildStreams } = require('./format');
 const { CACHED_BONUS, scoreItem } = require('./rank');
 const { ALL } = require('./providers');
+const { json } = require('./http');
 const debrid = require('./debrid');
 const health = require('./health');
 const cache = require('./cache');
@@ -239,6 +240,42 @@ async function handleConfig({ query, body }) {
   if (body.action === 'encode') {
     const cfg = normalize(body.config);
     return jsonResponse({ ok: true, blob: encode(cfg) });
+  }
+
+  /**
+   * Preflight a user-supplied addon URL.
+   *
+   * Some addons (StremThru Torz, MediaFusion) answer 200 with an empty stream
+   * list when they are not configured — indistinguishable from "this film has
+   * no results". Their manifest says so plainly, though: an empty `types` array
+   * or `configurationRequired: true` means the URL is a stub, not a source.
+   * Checking here turns a silent empty list into an explanation.
+   */
+  if (body.action === 'check-addon') {
+    const raw = String(body.url || '').trim();
+    if (!/^https?:\/\//i.test(raw)) {
+      return jsonResponse({ ok: false, error: 'Needs to be an http(s) URL' }, 200);
+    }
+
+    const base = raw.replace(/\/+$/, '').replace(/\/manifest\.json$/i, '');
+    try {
+      const manifest = await json(`${base}/manifest.json`, { timeout: 8000 });
+      const types = Array.isArray(manifest && manifest.types) ? manifest.types : [];
+      const needsConfig = !!(manifest && manifest.behaviorHints && manifest.behaviorHints.configurationRequired);
+      const configured = types.length > 0 && !needsConfig;
+
+      return jsonResponse({
+        ok: true,
+        name: manifest && manifest.name ? String(manifest.name) : base,
+        types,
+        configured,
+        note: configured
+          ? `Ready — serves ${types.join(', ')}`
+          : 'This URL is not configured yet. Open the addon\'s own configure page and paste the URL it gives you, not its bare address.',
+      });
+    } catch (err) {
+      return jsonResponse({ ok: false, error: err.hint || err.message || 'Could not reach that addon' }, 200);
+    }
   }
 
   return jsonResponse({ ok: false, error: 'Unknown action' }, 400);

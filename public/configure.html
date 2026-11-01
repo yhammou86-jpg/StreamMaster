@@ -312,6 +312,11 @@
           how they are meant to be installed. Hydra asks each one for streams and merges the
           results with everything else.
         </div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn btn-sm" id="checkAddonsBtn">Check these URLs</button>
+          <span class="hint" style="margin:0">Tells you whether each one is actually configured</span>
+        </div>
+        <div id="addonChecks" style="margin-top:10px"></div>
       </div>
 
       <div class="field">
@@ -829,6 +834,55 @@
   }
 
   /* ------------------------------------------------------------------ probe */
+  async function checkAddons() {
+    const btn = $('checkAddonsBtn');
+    const out = $('addonChecks');
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+    if (!state.addons.length) {
+      out.innerHTML = '<div class="hint" style="margin:0">No addon URLs to check.</div>';
+      return;
+    }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span> Checking…';
+    out.innerHTML = '';
+
+    try {
+      const results = await Promise.all(state.addons.map(async (url) => {
+        try {
+          const res = await fetch('/api/config', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ action: 'check-addon', url })
+          });
+          return { url, ...(await res.json()) };
+        } catch (err) {
+          return { url, ok: false, error: err.message };
+        }
+      }));
+
+      out.innerHTML = results.map((r) => {
+        // A reachable manifest that serves no types is a stub — the URL is
+        // valid but the addon has no settings in it yet.
+        const kind = !r.ok ? 'bad' : r.configured ? 'ok' : 'warn';
+        const label = !r.ok ? 'unreachable' : r.configured ? 'ready' : 'not configured';
+        const detail = r.ok ? (r.configured ? r.note : r.note) : (r.error || 'failed');
+        return `<div class="pitem">
+          <div class="prow"><span class="dot ${kind}"></span>
+            <span class="nm">${esc(r.name || r.url)}</span>
+            <span class="reason ${kind}">${esc(label)}</span>
+          </div>
+          <div class="phint">${esc(detail)}</div>
+        </div>`;
+      }).join('');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Check these URLs';
+    }
+  }
+
   async function probeSources() {
     const btn = $('probeBtn');
     const out = $('probeOut');
@@ -915,6 +969,7 @@
     });
 
     $('probeBtn').addEventListener('click', probeSources);
+    $('checkAddonsBtn').addEventListener('click', checkAddons);
 
     $('tzUrl').addEventListener('input', (e) => {
       state.torznab.url = e.target.value.trim();

@@ -221,6 +221,33 @@ test('config endpoint encodes a blob', async () => {
   assert.ok(decode(body.blob));
 });
 
+testAsync('check-addon rejects a non-http url', async () => {
+  const res = await handleConfig({ body: { action: 'check-addon', url: 'javascript:alert(1)' } });
+  const body = JSON.parse(res.body);
+  assert.strictEqual(body.ok, false);
+});
+
+testAsync('check-addon flags an unconfigured addon as not configured', async () => {
+  // StremThru Torz serves a manifest with an empty `types` array until it has
+  // been configured — the exact silent-empty failure this check exists to catch.
+  const res = await handleConfig({
+    body: { action: 'check-addon', url: 'https://stremthru.elfhosted.com/stremio/torz' },
+  });
+  const body = JSON.parse(res.body);
+  assert.strictEqual(body.ok, true, 'manifest should be reachable');
+  assert.strictEqual(body.configured, false, 'should be flagged as unconfigured');
+});
+
+testAsync('check-addon passes a working addon', async () => {
+  const res = await handleConfig({
+    body: { action: 'check-addon', url: 'https://torrentio.strem.fun' },
+  });
+  const body = JSON.parse(res.body);
+  assert.strictEqual(body.ok, true);
+  assert.strictEqual(body.configured, true);
+  assert.ok(body.types.includes('movie'));
+});
+
 /* ------------------------------------------------------ release identity */
 console.log('\nrelease identity');
 
