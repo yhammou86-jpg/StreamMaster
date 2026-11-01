@@ -302,8 +302,13 @@
         </div>
         <div class="hint">
           Some trackers fingerprint the TLS handshake and refuse server traffic — a
-          User-Agent will not help, only a different exit point will. Paste a CORS-style
-          proxy prefix, or a template containing <code>{url}</code>. Leave empty to fetch directly.
+          User-Agent will not help, only a different exit point will. Paste a proxy
+          prefix, or a template containing <code>{url}</code>. Leave empty to fetch directly.
+          <br />
+          <strong style="color:var(--gold)">Free option:</strong> deploy the bundled Cloudflare
+          Worker (<code>worker/index.mjs</code>) — no server, no card. Open
+          <code>&lt;worker-url&gt;/__check</code> to confirm it can reach the trackers before
+          relying on it.
         </div>
       </div>
     </div>

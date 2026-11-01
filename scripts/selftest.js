@@ -29,15 +29,27 @@ function test(name, fn) {
   }
 }
 
-async function testAsync(name, fn) {
-  try {
-    await fn();
-    passed += 1;
-    process.stdout.write(`  \x1b[32m✓\x1b[0m ${name}\n`);
-  } catch (err) {
-    failures.push({ name, err });
-    process.stdout.write(`  \x1b[31m✗\x1b[0m ${name}\n      ${err.message}\n`);
-  }
+/**
+ * Async tests are collected rather than awaited in place, so the report at the
+ * bottom can wait for them. Without this the summary printed before the network
+ * tests resolved — and the process exited 0 even when they failed, which made
+ * the whole suite useless as a deploy gate.
+ */
+const pending = [];
+
+function testAsync(name, fn) {
+  const run = (async () => {
+    try {
+      await fn();
+      passed += 1;
+      process.stdout.write(`  \x1b[32m✓\x1b[0m ${name}\n`);
+    } catch (err) {
+      failures.push({ name, err });
+      process.stdout.write(`  \x1b[31m✗\x1b[0m ${name}\n      ${err.message}\n`);
+    }
+  })();
+  pending.push(run);
+  return run;
 }
 
 /* ---------------------------------------------------------------- codec */
@@ -263,12 +275,88 @@ test('a specific reason outranks a timeout across mirrors', () => {
   assert.strictEqual(mostInformative([]), null);
 });
 
+/* ------------------------------------------------------------ proxy worker */
+console.log('\nproxy worker');
+
+const workerUrl = encodeURIComponent('https://apibay.org/q.php?q=dune&cat=0');
+
+testAsync('accepts every proxy URL shape the addon can produce', async () => {
+  const { extractTarget } = await import('../worker/index.mjs');
+  const want = 'https://apibay.org/q.php?q=dune&cat=0';
+  assert.strictEqual(extractTarget(`https://w.dev/?url=${workerUrl}`), want, '?url= form');
+  assert.strictEqual(extractTarget(`https://w.dev/f/${workerUrl}`), want, '/f/ form');
+  assert.strictEqual(extractTarget(`https://w.dev/${workerUrl}`), want, 'bare prefix form');
+  assert.strictEqual(extractTarget('https://w.dev/'), null, 'root is not a target');
+  assert.strictEqual(extractTarget('https://w.dev/not-a-url'), null, 'junk rejected');
+});
+
+testAsync('blocks hosts outside the allowlist', async () => {
+  const { isAllowed, allowList } = await import('../worker/index.mjs');
+  const allow = allowList({});
+  assert.strictEqual(isAllowed('apibay.org', allow), true);
+  assert.strictEqual(isAllowed('cdn.apibay.org', allow), true, 'subdomains allowed');
+  assert.strictEqual(isAllowed('evil-apibay.org', allow), false, 'suffix trick rejected');
+  assert.strictEqual(isAllowed('apibay.org.evil.com', allow), false, 'prefix trick rejected');
+  assert.strictEqual(isAllowed('169.254.169.254', allow), false, 'metadata IP rejected');
+  assert.deepStrictEqual(allowList({ ALLOW_HOSTS: 'my.tracker' }), ['my.tracker'], 'env override');
+});
+
+testAsync('refuses to proxy an SSRF target', async () => {
+  const { default: handler } = await import('../worker/index.mjs');
+  const target = encodeURIComponent('http://169.254.169.254/latest/meta-data');
+  const res = await handler.fetch(new Request(`https://w.dev/?url=${target}`), {});
+  assert.strictEqual(res.status, 403);
+});
+
+testAsync('routes a provider through the configured proxy', async () => {
+  // Stand up a local stand-in for the Worker and check the addon actually uses
+  // it, rather than quietly falling back to a direct (blocked) request.
+  const http = require('node:http');
+  const payload = JSON.stringify([
+    {
+      id: '1',
+      name: 'Interstellar (2014) 1080p BluRay x264',
+      info_hash: 'a'.repeat(40),
+      size: '1500000000',
+      seeders: '42',
+    },
+  ]);
+
+  let forwarded = null;
+  const server = http.createServer((req, res) => {
+    forwarded = new URL(req.url, 'http://x').searchParams.get('url');
+    res.writeHead(200, { 'content-type': 'application/json' });
+    res.end(payload);
+  });
+
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+
+  try {
+    const apibay = require('../src/providers/apibay');
+    const rows = await apibay.search({
+      kind: 'movie',
+      title: 'Interstellar',
+      year: 2014,
+      season: null,
+      episode: null,
+      cfg: { proxy: `http://127.0.0.1:${port}/?url=` },
+    });
+
+    assert.strictEqual(rows.length, 1, 'should parse the proxied payload');
+    assert.strictEqual(rows[0].seeders, 42);
+    assert.match(String(forwarded), /apibay\.org\/q\.php/, 'the real target should be forwarded');
+  } finally {
+    server.close();
+  }
+});
+
 /* ---------------------------------------------------------------- live */
 console.log('\nlive scrape (network)');
 
 testAsync('returns real streams for a known movie', async () => {
   const blob = encode(normalize({ mode: 'p2p', providers: { knaben: true, yts: true } }));
-  const res = await require('../src/app').handleStream({ c: blob, type: 'movie', id: 'tt1375666' }, headers);
+  const res = await require('../src/app').handleStream({ c: blob, type: 'movie', id: 'tt0816692' }, headers);
   const body = JSON.parse(res.body);
   assert.ok(Array.isArray(body.streams), 'streams must be an array');
   assert.ok(body.streams.length > 0, 'expected at least one stream');
@@ -279,6 +367,10 @@ testAsync('returns real streams for a known movie', async () => {
 });
 
 /* -------------------------------------------------------------- report */
-const total = passed + failures.length;
-console.log(`\n${failures.length ? '\x1b[31m' : '\x1b[32m'}${passed}/${total} passed\x1b[0m\n`);
-if (failures.length) process.exit(1);
+// Wait for the async (network) tests before judging the run, so the summary is
+// honest and the exit code reflects them.
+Promise.all(pending).then(() => {
+  const total = passed + failures.length;
+  console.log(`\n${failures.length ? '\x1b[31m' : '\x1b[32m'}${passed}/${total} passed\x1b[0m\n`);
+  if (failures.length) process.exit(1);
+});

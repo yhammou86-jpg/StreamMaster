@@ -1,0 +1,16 @@
+name = "hydrastream-proxy"
+main = "index.mjs"
+compatibility_date = "2024-09-23"
+
+# Workers free plan: 100,000 requests/day. No card required.
+# A Stremio/Nuvio stream request is a single call, so this is generous.
+
+[vars]
+# Leave empty to use the built-in tracker allowlist in index.mjs.
+# Comma-separated hostnames to override it, e.g. "apibay.org,my-tracker.example"
+ALLOW_HOSTS = ""
+TIMEOUT_MS = "9000"
+
+# Optional: keep responses hot at the edge for repeat searches.
+[observability]
+enabled = true

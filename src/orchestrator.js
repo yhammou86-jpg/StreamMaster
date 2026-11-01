@@ -239,15 +239,18 @@ async function probe(cfg, meta, opts = {}) {
  * movie. A source that already answered does not need a second opinion.
  */
 async function probeAll(cfg, opts = {}) {
+  // Deliberately a title that is actually present on the public trackers. The
+  // old probe used Inception, which has been taken down from TPB — so a
+  // perfectly healthy source reported `empty` and looked broken.
   const movie = {
     kind: 'movie',
-    imdbId: 'tt1375666',
-    title: 'Inception',
-    year: 2010,
+    imdbId: 'tt0816692',
+    title: 'Interstellar',
+    year: 2014,
     season: null,
     episode: null,
     episodeTitle: '',
-    genres: ['Action'],
+    genres: ['Adventure'],
   };
   const series = {
     kind: 'series',

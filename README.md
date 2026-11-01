@@ -268,6 +268,85 @@ debugging a source that stopped working.
 
 ---
 
+## Free proxy for blocked sources
+
+A TLS-fingerprint block cannot be fixed in the addon — the request has to come from
+somewhere else. That normally means a proxy, which normally means something to host.
+This is the exception: a Cloudflare Worker, on the free plan, with nothing to run.
+
+**No card, no server, no Prowlarr, no domain.** 100,000 requests a day is the free
+allowance, and one stream request is one call.
+
+### Deploy it (about two minutes, no tooling)
+
+1. Go to **dash.cloudflare.com → Workers & Pages → Create → Worker**.
+2. Replace the starter code with [`worker/index.mjs`](./worker/index.mjs), then **Deploy**.
+3. Note the URL it gives you: `https://<name>.<your-subdomain>.workers.dev`.
+4. Open **`<that-url>/__check`** in a browser.
+
+Step 4 is the important one. It makes the Worker test the trackers *from its own
+network* and tells you whether the block is actually bypassed:
+
+```json
+{
+  "ok": true,
+  "working": 4,
+  "total": 4,
+  "results": [
+    { "name": "TPB (apibay)", "status": 200, "ok": true, "bytes": 8421 },
+    { "name": "BitSearch",    "status": 200, "ok": true },
+    { "name": "Knaben",       "status": 200, "ok": true },
+    { "name": "YTS",          "status": 200, "ok": true }
+  ]
+}
+```
+
+If `TPB` comes back `200`, the proxy is doing its job. Paste the Worker URL into
+**step 2 of `/configure`** as the proxy and every blocked source routes through it.
+
+### Or deploy with the CLI
+
+```bash
+cd worker
+npx wrangler deploy
+```
+
+### It is not an open proxy
+
+An unrestricted fetch endpoint is an SSRF hazard and an abuse magnet, so the target is
+checked against an allowlist of tracker hosts — not "any URL". Host matching is
+boundary-aware, so `evil-apibay.org` and `apibay.org.evil.com` are both rejected, and
+private ranges like `169.254.169.254` never match in the first place.
+
+To add a source, set `ALLOW_HOSTS` in `wrangler.toml` (or the dashboard):
+
+```toml
+[vars]
+ALLOW_HOSTS = "apibay.org,my-tracker.example"
+```
+
+### What it accepts
+
+All three shapes, so any proxy setting works:
+
+| Form | Example |
+|---|---|
+| `?url=` | `https://<worker>/?url=https%3A%2F%2Fapibay.org%2Fq.php%3Fq%3Ddune` |
+| `/f/` | `https://<worker>/f/https%3A%2F%2Fapibay.org%2Fq.php%3Fq%3Ddune` |
+| bare | `https://<worker>/https%3A%2F%2Fapibay.org%2Fq.php%3Fq%3Ddune` |
+
+GET and POST are both forwarded — Knaben searches by POST, and a GET-only proxy would
+report it healthy while every real search returned nothing. GET responses are cached at
+the edge for 5 minutes to stay friendly to the trackers.
+
+### If TPB still fails
+
+You lose almost nothing. Knaben indexes The Pirate Bay and reports it as
+`cachedOrigin: "The Pirate Bay"` in its own results, so that catalogue is already
+covered by a source that needs no proxy at all.
+
+---
+
 ## Project layout
 
 ```
@@ -293,6 +372,9 @@ public/
 scripts/
   dev.js             local server
   selftest.js        test suite
+worker/
+  index.mjs          Cloudflare Worker fetch proxy
+  wrangler.toml      Worker config
 vercel.json          routing table
 ```
 
