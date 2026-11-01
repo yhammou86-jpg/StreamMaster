@@ -55,7 +55,8 @@ function buildManifest(cfg, base) {
     description:
       `One addon, every source. ${modeLabel}. ` +
       'Aggregates public trackers and Torznab indexers, checks your debrid cache in a single ' +
-      'batch call, and falls back to native P2P so there is always something to play.',
+      'batch call, and falls back to native P2P so there is always something to play. ' +
+      'Coded with love by Yassine Aka DesertBoy.',
     logo: `${base}/logo.svg`,
     background: `${base}/logo.svg`,
     resources: ['stream'],

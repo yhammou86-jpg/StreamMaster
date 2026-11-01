@@ -431,3 +431,11 @@ Hydra is an indexer. It does not host, store, upload, or distribute any media. A
 torrent references come from third-party public services, and debrid playback is performed entirely
 by your own account. You are responsible for complying with the laws of your jurisdiction and with
 the terms of any service you connect.
+
+---
+
+<div align="center">
+
+**Hydra** · Coded with ♥ love by **Yassine Aka DesertBoy**
+
+</div>

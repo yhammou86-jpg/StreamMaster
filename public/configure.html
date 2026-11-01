@@ -197,6 +197,10 @@
   .note{display:flex;gap:10px;padding:12px 14px;border-radius:11px;background:rgba(233,196,106,.06);
         border:1px solid rgba(233,196,106,.18);font-size:12.5px;color:#D9C89A;line-height:1.55;margin-top:14px}
   .note b{color:var(--gold-hi)}
+  .credit{text-align:center;font-size:12.5px;color:var(--dim);margin:34px 0 10px;letter-spacing:.01em}
+  .credit strong{color:var(--gold);font-weight:600}
+  .credit .heart{color:#E0736B}
+  .credit .sep{color:var(--line2);margin:0 4px}
 
   .toast{position:fixed;bottom:26px;left:50%;transform:translate(-50%,18px);z-index:99;background:#211B17;
          border:1px solid var(--gold-line);color:var(--text);padding:11px 20px;border-radius:11px;font-size:13px;
@@ -426,6 +430,11 @@
       <span style="font-family:var(--mono);font-size:11.5px">CONFIG_SECRET</span> if you self-host.
     </div>
   </div>
+
+  <p class="credit">
+    Hydra <span class="sep">·</span> Coded with <span class="heart">♥</span> love by
+    <strong>Yassine Aka DesertBoy</strong>
+  </p>
 </main>
 
 <div class="toast" id="toast"></div>
