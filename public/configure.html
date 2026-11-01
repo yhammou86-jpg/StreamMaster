@@ -299,6 +299,23 @@
 
       <div class="field">
         <div class="field-label">
+          <span>Your own addons — StremThru Torz, Sootio, Zilean, or any Stremio addon</span>
+        </div>
+        <div class="input-wrap" style="padding:10px 12px">
+          <textarea id="addons" rows="3" spellcheck="false"
+            placeholder="https://stremthru.elfhosted.com/stremio/torz/your-config&#10;https://sootio.elfhosted.com/your-config"
+            style="width:100%;border:0;background:transparent;color:inherit;font:inherit;resize:vertical;outline:none"></textarea>
+        </div>
+        <div class="hint">
+          One manifest URL per line. These addons hand you a personal URL containing your
+          own settings, so there is no usable anonymous instance to ship — pasting yours is
+          how they are meant to be installed. Hydra asks each one for streams and merges the
+          results with everything else.
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">
           <span>Proxy — optional, fixes Cloudflare-blocked sources</span>
         </div>
         <div class="input-wrap">
@@ -328,10 +345,28 @@
       <div class="field-label" style="margin-bottom:9px"><span>Resolutions</span></div>
       <div class="chips" id="resChips"></div>
 
+      <div class="field-label" style="margin:16px 0 9px"><span>Languages</span></div>
+      <div class="chips" id="langChips"></div>
+      <div class="hint" style="margin-top:8px">
+        Leave everything unselected for <strong>any language</strong>. Releases usually carry
+        no tag at all when they are English, so nothing is hidden unless a release is
+        explicitly labelled as another language. Multi-audio releases always pass.
+      </div>
+
       <div class="srow" style="margin-top:8px">
         <label>Max results</label>
         <input type="range" id="max" min="10" max="80" step="5" value="40" />
         <span class="val" id="maxVal">40</span>
+      </div>
+      <div class="srow">
+        <label>Max file size</label>
+        <input type="range" id="maxGB" min="0" max="150" step="5" value="40" />
+        <span class="val" id="maxGBVal">40 GB</span>
+      </div>
+      <div class="hint" style="margin-top:-2px;margin-bottom:6px">
+        Anything larger is dropped before it reaches the list — this is what removes the
+        60 GB remuxes nobody asked for. Set it to <em>No limit</em> to see everything.
+        Releases with no declared size are always kept.
       </div>
       <div class="srow">
         <label>Minimum seeders</label>
@@ -460,19 +495,31 @@
   ];
 
   const SOURCES = [
+    { id: 'torrentio', name: 'Torrentio', meta: 'Addon · dozens of indexers', tier: 1 },
+    { id: 'comet', name: 'Comet', meta: 'Addon · biggest catalogue', tier: 1 },
+    { id: 'torrentsdb', name: 'TorrentsDB', meta: 'Addon · curated releases', tier: 1 },
     { id: 'knaben', name: 'Knaben', meta: 'Meta-search · 30+ trackers', tier: 1 },
     { id: 'yts', name: 'YTS', meta: 'Movies · small encodes', tier: 1 },
     { id: 'eztv', name: 'EZTV', meta: 'Series · IMDb exact', tier: 1 },
     { id: 'bitsearch', name: 'BitSearch', meta: 'DHT index', tier: 1 },
     { id: 'nyaa', name: 'Nyaa', meta: 'Anime', tier: 1 },
+    { id: 'mediafusion', name: 'MediaFusion', meta: 'Addon · often empty', tier: 2 },
     { id: 'apibay', name: 'The Pirate Bay', meta: 'Largest catalogue', tier: 2 },
     { id: 'animetosho', name: 'AniTosho', meta: 'Anime mirrors', tier: 2 },
     { id: 'therarbg', name: 'RARBG', meta: 'Back catalogue', tier: 2 },
+    { id: 'torrentgalaxy', name: 'TorrentGalaxy', meta: 'Mirrors down · slow', tier: 3 },
     { id: 'prowlarr', name: 'Prowlarr', meta: 'Self-hosted JSON API', tier: 3 },
     { id: 'torznab', name: 'Torznab', meta: 'Jackett · any indexer', tier: 3 }
   ];
 
   const RES = [['4k', '4K'], ['1080p', '1080p'], ['720p', '720p'], ['480p', '480p']];
+
+  const LANGS = [
+    ['en', 'English'], ['es', 'Spanish'], ['fr', 'French'], ['de', 'German'],
+    ['it', 'Italian'], ['pt', 'Portuguese'], ['ru', 'Russian'], ['hi', 'Hindi'],
+    ['ja', 'Japanese'], ['ko', 'Korean'], ['zh', 'Chinese'], ['ar', 'Arabic'],
+    ['tr', 'Turkish'], ['pl', 'Polish'], ['nl', 'Dutch'], ['sv', 'Swedish']
+  ];
 
   const origin = location.origin;
   const $ = (id) => document.getElementById(id);
@@ -483,9 +530,14 @@
     mode: 'hybrid',
     style: 'rich',
     providers: { knaben: true, yts: true, eztv: true, bitsearch: true, nyaa: true, apibay: true,
-                 animetosho: true, therarbg: false, prowlarr: false, torznab: false },
+                 animetosho: true, therarbg: false, torrentio: true, comet: true,
+                 torrentsdb: true, mediafusion: true, torrentgalaxy: false,
+                 prowlarr: false, torznab: false },
     res: ['4k', '1080p', '720p', '480p'],
     max: 40,
+    maxGB: 40,
+    langs: [],
+    addons: [],
     minSeed: 0,
     noCam: true,
     strictMatch: true,
@@ -635,6 +687,23 @@
     }
   }
 
+  function renderLangs() {
+    const box = $('langChips');
+    box.innerHTML = '';
+    for (const [id, label] of LANGS) {
+      const b = document.createElement('button');
+      b.className = 'chip' + (state.langs.includes(id) ? ' on' : '');
+      b.textContent = label;
+      b.addEventListener('click', () => {
+        if (state.langs.includes(id)) state.langs = state.langs.filter((l) => l !== id);
+        else state.langs.push(id);
+        renderLangs();
+        scheduleUpdate();
+      });
+      box.appendChild(b);
+    }
+  }
+
   function renderModes() {
     const box = $('modeChips');
     const modes = [
@@ -694,6 +763,9 @@
       providers: state.providers,
       res: state.res,
       max: state.max,
+      maxGB: state.maxGB,
+      langs: state.langs,
+      addons: state.addons,
       minSeed: state.minSeed,
       noCam: state.noCam,
       strictMatch: state.strictMatch,
@@ -865,6 +937,18 @@
       $('maxVal').textContent = state.max;
       scheduleUpdate();
     });
+    $('maxGB').addEventListener('input', (e) => {
+      state.maxGB = Number(e.target.value);
+      $('maxGBVal').textContent = state.maxGB ? state.maxGB + ' GB' : 'No limit';
+      scheduleUpdate();
+    });
+    $('addons').addEventListener('input', (e) => {
+      state.addons = e.target.value
+        .split(/\s+/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      scheduleUpdate();
+    });
     $('minSeed').addEventListener('input', (e) => {
       state.minSeed = Number(e.target.value);
       $('minSeedVal').textContent = state.minSeed;
@@ -937,6 +1021,9 @@
       state.providers = { ...state.providers, ...(cfg.providers || {}) };
       state.res = cfg.res && cfg.res.length ? cfg.res : state.res;
       state.max = cfg.max || state.max;
+      state.maxGB = typeof cfg.maxGB === 'number' ? cfg.maxGB : state.maxGB;
+      state.langs = Array.isArray(cfg.langs) ? cfg.langs : [];
+      state.addons = Array.isArray(cfg.addons) ? cfg.addons : [];
       state.minSeed = cfg.minSeed || 0;
       state.noCam = cfg.noCam !== false;
       state.strictMatch = cfg.strictMatch !== false;
@@ -950,6 +1037,9 @@
       state.prowlarr = cfg.prowlarr || state.prowlarr;
 
       $('max').value = state.max; $('maxVal').textContent = state.max;
+      $('maxGB').value = state.maxGB;
+      $('maxGBVal').textContent = state.maxGB ? state.maxGB + ' GB' : 'No limit';
+      $('addons').value = state.addons.join('\n');
       $('minSeed').value = state.minSeed; $('minSeedVal').textContent = state.minSeed;
       $('sort').value = state.sort;
       $('style').value = state.style;
@@ -962,7 +1052,7 @@
       $('tgCached').classList.toggle('on', state.cachedOnly);
       $('tgUncached').classList.toggle('on', state.uncached);
 
-      renderServices(); renderSources(); renderRes(); renderModes(); syncKeyBlock();
+      renderServices(); renderSources(); renderRes(); renderLangs(); renderModes(); syncKeyBlock();
       updateUrl();
       toast('Configuration loaded');
     } catch (_) { /* ignore */ }
@@ -972,6 +1062,7 @@
   renderClients();
   renderSources();
   renderRes();
+  renderLangs();
   renderModes();
   syncKeyBlock();
   applyClient();

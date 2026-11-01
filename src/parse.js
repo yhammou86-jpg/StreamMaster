@@ -47,22 +47,89 @@ const AUDIO_MAP = [
   [/\b(aac)\b/i, 'AAC'],
 ];
 
-const LANG_TAGS = {
-  multi: 'MULTi',
-  ita: 'ITA',
-  fre: 'FRE',
-  vff: 'FRE',
-  vfq: 'FRE',
-  ger: 'GER',
-  spa: 'SPA',
-  lat: 'LAT',
-  por: 'POR',
-  rus: 'RUS',
-  hin: 'HIN',
-  kor: 'KOR',
-  jpn: 'JPN',
-  dual: 'DUAL',
-};
+/**
+ * Language tags in release names.
+ *
+ * Two classes of tag, matched differently on purpose:
+ *   - three-letter tags (ITA, FRE, GER ...) are conventionally UPPERCASE, so
+ *     they are matched case-sensitively. Matching `dan` case-insensitively
+ *     would read "Dan Brown" as Danish and drop the film for a Danish filter.
+ *   - spelled-out names ("French", "Castellano") are matched case-insensitively.
+ */
+const LANG_TAGS = [
+  { code: 'en', label: 'ENG', codes: ['ENG'], words: /\benglish\b/i },
+  { code: 'it', label: 'ITA', codes: ['ITA'], words: /\bitalian\b/i },
+  { code: 'fr', label: 'FRE', codes: ['FRE', 'VFF', 'VFQ'], words: /\b(french|truefrench)\b/i },
+  { code: 'de', label: 'GER', codes: ['GER'], words: /\b(german|deutsch)\b/i },
+  { code: 'es', label: 'SPA', codes: ['SPA', 'ESP'], words: /\b(spanish|castellano)\b/i },
+  { code: 'es', label: 'LAT', codes: ['LAT'], words: /\blatino\b/i },
+  { code: 'pt', label: 'POR', codes: ['POR', 'POB'], words: /\b(portuguese|dublado)\b/i },
+  { code: 'ru', label: 'RUS', codes: ['RUS'], words: /\brussian\b/i },
+  { code: 'hi', label: 'HIN', codes: ['HIN'], words: /\bhindi\b/i },
+  { code: 'ko', label: 'KOR', codes: ['KOR'], words: /\bkorean\b/i },
+  { code: 'ja', label: 'JPN', codes: ['JPN'], words: /\bjapanese\b/i },
+  { code: 'zh', label: 'CHI', codes: ['CHI', 'CHS', 'CHT'], words: /\b(chinese|mandarin|cantonese)\b/i },
+  { code: 'tr', label: 'TUR', codes: ['TUR'], words: /\bturkish\b/i },
+  { code: 'pl', label: 'POL', codes: ['POL'], words: /\bpolish\b/i },
+  { code: 'nl', label: 'DUT', codes: ['NLD', 'DUT'], words: /\bdutch\b/i },
+  { code: 'sv', label: 'SWE', codes: ['SWE'], words: /\bswedish\b/i },
+  { code: 'no', label: 'NOR', codes: ['NOR'], words: /\bnorwegian\b/i },
+  { code: 'da', label: 'DAN', codes: ['DAN'], words: /\bdanish\b/i },
+  { code: 'fi', label: 'FIN', codes: ['FIN'], words: /\bfinnish\b/i },
+  { code: 'cs', label: 'CZE', codes: ['CZE'], words: /\bczech\b/i },
+  { code: 'hu', label: 'HUN', codes: ['HUN'], words: /\bhungarian\b/i },
+  { code: 'ro', label: 'RUM', codes: ['RUM', 'ROM'], words: /\bromanian\b/i },
+  { code: 'ar', label: 'ARA', codes: ['ARA'], words: /\barabic\b/i },
+  { code: 'he', label: 'HEB', codes: ['HEB'], words: /\bhebrew\b/i },
+  { code: 'th', label: 'THA', codes: ['THA'], words: /\bthai\b/i },
+  { code: 'vi', label: 'VIE', codes: ['VIE'], words: /\bvietnamese\b/i },
+  { code: 'id', label: 'IND', codes: ['IND'], words: /\bindonesian\b/i },
+];
+
+/** Multi-audio releases carry several tracks, so they satisfy any language. */
+const MULTI_RE = /\b(multi|dual)\b/i;
+
+/** Distinct ISO codes a user can filter on. */
+const SUPPORTED_LANGS = [...new Set(LANG_TAGS.map((t) => t.code))];
+
+/**
+ * @param {string} raw release name
+ * @returns {{codes: string[], labels: string[]}} ISO codes plus display labels
+ */
+function detectLanguages(raw) {
+  const text = String(raw || '');
+  const codes = new Set();
+  const labels = [];
+
+  for (const tag of LANG_TAGS) {
+    let hit = tag.words.test(text);
+    if (!hit) hit = tag.codes.some((c) => new RegExp(`\\b${c}\\b`).test(text));
+    if (!hit) continue;
+    codes.add(tag.code);
+    if (!labels.includes(tag.label)) labels.push(tag.label);
+  }
+
+  if (MULTI_RE.test(text)) {
+    codes.add('multi');
+    if (!labels.includes('MULTi')) labels.push('MULTi');
+  }
+
+  return { codes: [...codes], labels };
+}
+
+/** "12.4 GB" / "1,2 GB" / "850 MB" -> bytes. Returns 0 when unparseable. */
+const SIZE_TEXT_RE = /(\d+(?:[.,]\d+)?)\s*(TB|GIB|GB|MIB|MB)\b/i;
+
+function parseSizeText(text) {
+  const m = String(text || '').match(SIZE_TEXT_RE);
+  if (!m) return 0;
+  const n = parseFloat(String(m[1]).replace(',', '.'));
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  const unit = m[2].toUpperCase();
+  const mult = unit === 'TB' ? 1e12 : unit === 'GIB' || unit === 'GB' ? 1e9 : 1e6;
+  return Math.round(n * mult);
+}
+
 
 function firstMatch(map, text) {
   for (const [re, label, weight] of map) {
@@ -313,9 +380,8 @@ function parseRelease(name) {
   const group = groupMatch ? groupMatch[1] : '';
 
   const langs = [];
-  for (const [tag, label] of Object.entries(LANG_TAGS)) {
-    if (new RegExp(`\\b${tag}\\b`, 'i').test(text)) langs.push(label);
-  }
+  const langInfo = detectLanguages(text);
+  for (const label of langInfo.labels) langs.push(label);
 
   return {
     raw,
@@ -339,6 +405,7 @@ function parseRelease(name) {
     year,
     group,
     langs: [...new Set(langs)],
+    langCodes: langInfo.codes,
   };
 }
 
@@ -359,4 +426,7 @@ module.exports = {
   isJunk,
   plausibleSize,
   normTitle,
+  detectLanguages,
+  parseSizeText,
+  SUPPORTED_LANGS,
 };

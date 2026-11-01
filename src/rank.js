@@ -50,6 +50,14 @@ function scoreItem(item, cfg, opts = {}) {
     if (p.langs.some((l) => l.toLowerCase().includes(want))) score += 180;
   }
 
+  // Preferred languages get a nudge rather than a hard gate — the filter above
+  // already removed the clear mismatches, so this only breaks ties.
+  if (cfg.langs && cfg.langs.length) {
+    const codes = p.langCodes || [];
+    if (codes.some((c) => cfg.langs.includes(c))) score += 180;
+    else if (codes.includes('multi')) score += 60;
+  }
+
   if (p.isCam) score -= 6000;
   if (p.threeD) score -= 250;
   if (!item.size) score -= 50;
@@ -72,6 +80,21 @@ function passesFilters(item, cfg, meta) {
   // NB: cachedOnly is enforced in the stream handler *after* the TorBox probe,
   // because cache state is unknown while scraping.
   if (cfg.minSeed > 0 && item.seeders < cfg.minSeed) return false;
+
+  // Size cap. Unknown sizes always pass — several addons omit them, and
+  // dropping those would silently remove a whole source from the results.
+  if (cfg.maxGB > 0 && item.size > 0 && item.size > cfg.maxGB * 1e9) return false;
+
+  // Language filter. Only a *positive* mismatch is excluded: an untagged
+  // release is unknown, not foreign, and a MULTi/DUAL release carries several
+  // audio tracks, so it satisfies any preference.
+  if (cfg.langs && cfg.langs.length) {
+    const codes = p.langCodes || [];
+    const foreign = codes.filter((c) => c !== 'multi');
+    if (foreign.length && !codes.includes('multi')) {
+      if (!foreign.some((c) => cfg.langs.includes(c))) return false;
+    }
+  }
 
   // Identity checks. Most sources search by title text, so a search for "Dune"
   // returns Dune (1984), "Dune Drifter" and worse. Without these the addon

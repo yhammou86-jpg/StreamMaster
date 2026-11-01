@@ -9,11 +9,25 @@
  */
 
 const { ALL } = require('./providers');
+const { fromUrls } = require('./providers/addon');
 const { parseRelease, matchesEpisode } = require('./parse');
 const { isUnreleased } = require('./metadata');
 const { scoreItem, passesFilters, sortItems } = require('./rank');
 const { withTimeout } = require('./http');
 const health = require('./health');
+
+/**
+ * Every provider that should run for this request.
+ *
+ * Built-ins are toggled by id; user-pasted addon URLs are instantiated on the
+ * fly. Both paths produce the same provider shape, so nothing downstream needs
+ * to know the difference.
+ */
+function activeProviders(cfg, kind) {
+  const builtin = ALL.filter((p) => cfg.providers[p.id] && p.kinds.includes(kind));
+  const custom = fromUrls(cfg.addons).filter((p) => p.kinds.includes(kind));
+  return builtin.concat(custom);
+}
 
 /**
  * Overall budget for scraping. Vercel Hobby allows 60s and the function is
@@ -111,7 +125,7 @@ async function gather(cfg, meta, opts = {}) {
     };
   }
 
-  const active = ALL.filter((p) => cfg.providers[p.id] && p.kinds.includes(meta.kind));
+  const active = activeProviders(cfg, meta.kind);
   if (!active.length || !meta.title) return { items: [], stats: { providers: 0, raw: 0, ms: 0 } };
 
   const ctx = { ...meta, cfg };
@@ -185,7 +199,7 @@ const PROBE_BUDGET_MS = 26000;
  * `timeout` rather than silently blowing through the function limit.
  */
 async function probe(cfg, meta, opts = {}) {
-  const active = ALL.filter((p) => cfg.providers[p.id] && p.kinds.includes(meta.kind));
+  const active = activeProviders(cfg, meta.kind);
   const ctx = { ...meta, cfg };
   const timeout = opts.timeout || PROBE_TIMEOUT_MS;
   const limit = opts.concurrency || PROBE_CONCURRENCY;
@@ -284,8 +298,8 @@ async function probeAll(cfg, opts = {}) {
   // providers that are series-only, since they never appear in the movie pass
   // at all and would otherwise vanish from the report.
   const retry = new Set(movieRows.filter((r) => r.count === 0).map((r) => r.id));
-  for (const provider of ALL) {
-    if (!cfg.providers[provider.id]) continue;
+  for (const provider of ALL.concat(fromUrls(cfg.addons))) {
+    if (!cfg.providers[provider.id] && provider.addon !== true) continue;
     if (provider.kinds.includes('series') && !seen.has(provider.id)) retry.add(provider.id);
   }
 

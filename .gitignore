@@ -22,3 +22,8 @@ Thumbs.db
 # Scratch
 *.log
 .tmp-*
+
+# Project data + rendered marketing assets (large binaries stay local)
+.workbuddy-ai/
+promo/*.mp4
+promo/thumbnail-*.png

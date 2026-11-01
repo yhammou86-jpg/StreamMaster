@@ -10,7 +10,7 @@ Runs entirely on Vercel's free tier. Zero runtime dependencies.
 Stremio  ──┐
            ├──►  Hydra  ──►  Cinemeta (title lookup)
 Nuvio    ──┘         │
-                     ├──►  10 sources in parallel, hard deadline
+                     ├──►  15 sources in parallel, hard deadline
                      ├──►  debrid checkcached  (1 request, N hashes)
                      └──►  ranked stream list
                               ├─ ⚡ cached  → /r/<hash>  → direct link
@@ -132,7 +132,9 @@ Everything below is set through `/configure` and encoded into the addon URL.
 | `cachedOnly` | Only show what the service can serve right now |
 | `uncached` | Allow the service to fetch uncached torrents on play (slow first play) |
 | `preferEfficient` | Slight boost for x265 / AV1 encodes |
-| `lang` | Preferred language tag, e.g. `ita` |
+| `maxGB` | Hard cap on file size in GB (default 40). `0` disables it. |
+| `langs` | Language filter, ISO codes, e.g. `["en"]`. Empty means any. |
+| `addons` | Extra addon manifest URLs — StremThru Torz, Sootio, Zilean, or any Stremio addon |
 | `proxy` | Fetch sources through a proxy. Prefix (`https://w.dev/?url=`) or template (`https://w.dev/f/{url}`). Fixes TLS-fingerprint blocks. |
 | `torznab` | `{ url, key }` — Jackett / Prowlarr / any Newznab feed |
 | `prowlarr` | `{ url, key }` — Prowlarr's aggregate JSON API |
@@ -166,22 +168,51 @@ async function resolve(key, hash, hint, opts) -> string    // a direct HTTPS URL
 
 ## Sources
 
+Two kinds. **Addons** already did the scraping — Hydra asks them the same question Stremio
+would and merges the answer, so one request returns what used to take a dozen. **Trackers**
+are scraped directly.
+
 | Source | Tier | Notes |
 |---|---|---|
-| **Knaben** | 1 | Meta-search over dozens of trackers, with *live* seeders. Carries most of the weight. |
+| **Torrentio** | 1 | Addon. Aggregates dozens of indexers; ~150 rows for a well-known film. |
+| **Comet** | 1 | Addon. The largest catalogue of the bunch — 1,600+ rows for the same film. |
+| **TorrentsDB** | 1 | Addon. Curated releases, good 4K coverage. |
+| **Knaben** | 1 | Meta-search over dozens of trackers, with *live* seeders. |
 | **YTS** | 1 | Movies, small high-quality encodes. IMDb-addressable. |
 | **EZTV** | 1 | Series, IMDb-addressable, so episode matching is exact. |
 | **BitSearch** | 1 | DHT index, clean JSON API. Formerly SolidTorrents — the old domain now 301s here. |
 | **Nyaa** | 1 | Anime, via RSS. |
+| **MediaFusion** | 2 | Addon. The public instance currently answers with an empty list. |
 | **The Pirate Bay** | 2 | Via `apibay.org`. Blocked for server-side clients by TLS fingerprinting — needs a proxy. Knaben already indexes TPB, so you rarely lose anything. |
 | **AniTosho** | 2 | Anime mirrors. |
 | **RARBG** | 2 | Off by default — heavily rate limited. |
+| **TorrentGalaxy** | 3 | Direct HTML scrape. Every public mirror is currently dead or challenged, and listings carry no infohash so the top rows need a detail-page fetch. Off by default; Knaben already indexes TGX. |
 | **Torznab** | 3 | **Jackett, Prowlarr, or any Newznab feed.** One URL can unlock hundreds of indexers. |
 | **Prowlarr** | 3 | Prowlarr's aggregate JSON search endpoint. |
 
-Providers fail independently. If Cloudflare blocks three of them from your region, the other seven
-still answer and the request still succeeds. Use **Test all sources** in step 2 to see exactly which
-ones work from your deployment.
+### Bring your own addon
+
+StremThru Torz, Sootio and Zilean are config-required: each hands you a personal manifest URL
+containing your own settings, and there is no usable anonymous instance to ship. Paste that URL
+into **Your own addons** in step 2 — one per line — and Hydra will query it like any other source.
+
+Providers fail independently. If Cloudflare blocks three of them from your region, the rest
+still answer and the request still succeeds. Use **Test all sources** in step 2 to see exactly
+which ones work from your deployment.
+
+---
+
+## Filters
+
+| Setting | Default | Behaviour |
+|---|---|---|
+| `maxGB` | 40 | Hard cap on file size. `0` disables it. Releases with no declared size always pass — several addons omit it, and dropping those would silently remove a whole source. |
+| `langs` | `[]` (any) | ISO codes. Only a *positive* mismatch is excluded: a release tagged `FRENCH` is dropped when you asked for English, but an untagged one is kept because unknown is not the same as foreign. `MULTi`/`DUAL` releases carry several tracks and always pass. |
+
+Language tags are matched in two classes, which matters more than it sounds: three-letter
+codes (`ITA`, `FRE`, `DAN`) are matched **case-sensitively** because release names uppercase
+them, while spelled-out names (`French`, `Castellano`) are matched case-insensitively. Matching
+`dan` loosely would read "Dan Brown" as Danish and drop the film.
 
 ---
 

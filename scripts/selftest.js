@@ -11,8 +11,9 @@ const assert = require('node:assert');
 
 const { encode, decode } = require('../src/codec');
 const { normalize } = require('../src/config');
-const { parseRelease, matchesEpisode } = require('../src/parse');
+const { parseRelease, matchesEpisode, detectLanguages, parseSizeText } = require('../src/parse');
 const { scoreItem, passesFilters } = require('../src/rank');
+const { toRow } = require('../src/providers/addon');
 const { handleManifest, handleHealth, handleConfig } = require('../src/app');
 
 let passed = 0;
@@ -59,7 +60,13 @@ test('round-trips a config', () => {
   const cfg = normalize({ key: 'abc123', mode: 'hybrid', max: 55 });
   const blob = encode(cfg);
   assert.ok(blob.startsWith('d1'), 'expected d1 prefix');
-  assert.deepStrictEqual(decode(blob), cfg);
+  // The blob carries only the delta, so it is normalised back into a full config.
+  assert.deepStrictEqual(normalize(decode(blob)), cfg);
+});
+
+test('keeps a default config tiny', () => {
+  const blob = encode(normalize({}));
+  assert.ok(blob.length < 40, `blob was ${blob.length} chars`);
 });
 
 test('stays short enough for a URL', () => {
@@ -79,7 +86,7 @@ test('encrypts when CONFIG_SECRET is set', () => {
   const blob = encode(cfg);
   assert.ok(blob.startsWith('e1'), 'expected e1 prefix');
   assert.ok(!blob.includes('super-secret'), 'key must not appear in plaintext');
-  assert.deepStrictEqual(decode(blob), cfg);
+  assert.deepStrictEqual(normalize(decode(blob)), cfg);
   delete process.env.CONFIG_SECRET;
 });
 
@@ -442,6 +449,111 @@ testAsync('routes a provider through the configured proxy', async () => {
   } finally {
     server.close();
   }
+});
+
+/* ------------------------------------------------------- addon sources */
+console.log('\naddon sources');
+
+test('reads seeders and size out of an addon card', () => {
+  const row = toRow(
+    {
+      name: 'Torrentio\n4k',
+      title: 'Inception.2010.2160p.UHD.BluRay\n👤 421 💾 58.2 GB ⚙️ TPB',
+      infoHash: 'a'.repeat(40),
+    },
+    'torrentio',
+    'Torrentio'
+  );
+  assert.strictEqual(row.title, 'Inception.2010.2160p.UHD.BluRay', 'picked the wrong line as the name');
+  assert.strictEqual(row.seeders, 421);
+  assert.strictEqual(Math.round(row.size / 1e9), 58);
+});
+
+test('recovers the infohash from a magnet url', () => {
+  const row = toRow(
+    { name: 'x', title: 'Film.2020.1080p', url: `magnet:?xt=urn:btih:${'b'.repeat(40)}&dn=x` },
+    'comet',
+    'Comet'
+  );
+  assert.strictEqual(row.infoHash, 'b'.repeat(40));
+});
+
+test('prefers behaviorHints.videoSize over the card text', () => {
+  const row = toRow(
+    { name: 'x', title: 'Film.2021.720p 💾 1.0 GB', infoHash: 'c'.repeat(40), behaviorHints: { videoSize: 1234567890 } },
+    'comet',
+    'Comet'
+  );
+  assert.strictEqual(row.size, 1234567890);
+});
+
+test('drops a stream that has no infohash', () => {
+  assert.strictEqual(toRow({ name: 'junk', title: 'nothing useful' }, 'comet', 'Comet'), null);
+});
+
+/* ---------------------------------------------------------------- filters */
+console.log('\nfilters');
+
+function candidate(title, size) {
+  return { title, size, seeders: 20, parsed: parseRelease(title) };
+}
+
+test('drops results above the size cap', () => {
+  const cfg = normalize({ maxGB: 40 });
+  assert.strictEqual(passesFilters(candidate('Film.2021.2160p.BluRay.x264', 50e9), cfg, null), false);
+  assert.strictEqual(passesFilters(candidate('Film.2021.2160p.BluRay.x264', 30e9), cfg, null), true);
+});
+
+test('keeps results with no declared size', () => {
+  const cfg = normalize({ maxGB: 40 });
+  assert.strictEqual(passesFilters(candidate('Film.2021.1080p.WEB-DL', 0), cfg, null), true);
+});
+
+test('maxGB of 0 means no cap', () => {
+  const cfg = normalize({ maxGB: 0 });
+  assert.strictEqual(passesFilters(candidate('Film.2021.2160p.BluRay.x264', 90e9), cfg, null), true);
+});
+
+test('rejects a release tagged in a language you did not ask for', () => {
+  const cfg = normalize({ langs: ['en'] });
+  assert.strictEqual(passesFilters(candidate('Amelie.2001.FRENCH.1080p.BluRay.x264', 8e9), cfg, null), false);
+});
+
+test('keeps an untagged release under a language filter', () => {
+  const cfg = normalize({ langs: ['en'] });
+  assert.strictEqual(passesFilters(candidate('Interstellar.2014.1080p.BluRay.x264', 8e9), cfg, null), true);
+});
+
+test('keeps a multi-audio release under a language filter', () => {
+  const cfg = normalize({ langs: ['en'] });
+  assert.strictEqual(passesFilters(candidate('Dune.2021.ITA.MULTI.1080p', 8e9), cfg, null), true);
+});
+
+test('keeps an explicitly English release', () => {
+  const cfg = normalize({ langs: ['en'] });
+  assert.strictEqual(passesFilters(candidate('Dune.2021.ENG.1080p.WEB-DL', 8e9), cfg, null), true);
+});
+
+test('does not read "Dan Brown" as Danish', () => {
+  assert.deepStrictEqual(detectLanguages('Dan.Browns.The.Lost.Symbol.2009.1080p').codes, []);
+  assert.deepStrictEqual(detectLanguages('Film.2020.DAN.1080p').codes, ['da']);
+});
+
+test('parses the size formats addons actually emit', () => {
+  assert.strictEqual(parseSizeText('12.4 GB'), 12400000000);
+  assert.strictEqual(parseSizeText('850 MB'), 850000000);
+  assert.strictEqual(parseSizeText('1,2 GB'), 1200000000);
+  assert.strictEqual(parseSizeText('no size'), 0);
+});
+
+test('drops unsupported language codes instead of trusting them', () => {
+  const cfg = normalize({ langs: ['en', 'xx', 'klingon'] });
+  assert.deepStrictEqual(cfg.langs, ['en']);
+});
+
+test('keeps only http(s) custom addon urls', () => {
+  const cfg = normalize({ addons: ['https://a.dev/addon', 'ftp://b.dev', 'javascript:alert(1)', ''] });
+  assert.deepStrictEqual(cfg.addons, ['https://a.dev/addon']);
 });
 
 /* ---------------------------------------------------------------- live */

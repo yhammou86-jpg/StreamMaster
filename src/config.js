@@ -7,6 +7,8 @@
  * value is clamped so a hand-edited URL can never crash the addon.
  */
 
+const { SUPPORTED_LANGS } = require('./parse');
+
 const PROVIDER_IDS = [
   'knaben',
   'yts',
@@ -16,6 +18,11 @@ const PROVIDER_IDS = [
   'apibay',
   'animetosho',
   'therarbg',
+  'torrentio',
+  'comet',
+  'torrentsdb',
+  'mediafusion',
+  'torrentgalaxy',
   'prowlarr',
   'torznab',
 ];
@@ -39,11 +46,22 @@ const DEFAULTS = {
     apibay: true,
     animetosho: true,
     therarbg: false,
+    // Addon sources: they already aggregated dozens of indexers, so they are
+    // the highest value-per-request sources in the list.
+    torrentio: true,
+    comet: true,
+    torrentsdb: true,
+    mediafusion: true,
+    // TGX has no live mirror and hangs, so it is opt-in.
+    torrentgalaxy: false,
     prowlarr: false,
     torznab: false,
   },
   res: ['4k', '1080p', '720p', '480p'],
   max: 40,
+  maxGB: 40,
+  langs: [],
+  addons: [],
   minSeed: 0,
   noCam: true,
   strictMatch: true,
@@ -83,6 +101,10 @@ function normalize(raw) {
     providers: {},
     res: [],
     max: clampInt(src.max, 5, 100, DEFAULTS.max),
+    // 0 means "no cap". 500 GB is a ceiling, not a recommendation.
+    maxGB: clampInt(src.maxGB, 0, 500, DEFAULTS.maxGB),
+    langs: [],
+    addons: [],
     minSeed: clampInt(src.minSeed, 0, 500, DEFAULTS.minSeed),
     noCam: bool(src.noCam, DEFAULTS.noCam),
     strictMatch: bool(src.strictMatch, DEFAULTS.strictMatch),
@@ -111,6 +133,24 @@ function normalize(raw) {
   const wanted = Array.isArray(src.res) ? src.res : DEFAULTS.res;
   cfg.res = RESOLUTIONS.filter((r) => wanted.includes(r));
   if (!cfg.res.length) cfg.res = DEFAULTS.res.slice();
+
+  // Empty means "any". That is the safe default: an English release usually
+  // carries no language tag at all, so a filter that required a positive match
+  // would empty the list for most films.
+  if (Array.isArray(src.langs)) {
+    cfg.langs = [...new Set(src.langs.filter((l) => SUPPORTED_LANGS.includes(l)))];
+  }
+
+  // Extra addon base URLs — StremThru Torz, Sootio, Zilean, or anything else.
+  // These addons hand you a personal manifest URL containing your settings,
+  // so pasting it is the supported integration rather than a workaround.
+  if (Array.isArray(src.addons)) {
+    cfg.addons = src.addons
+      .filter((u) => typeof u === 'string')
+      .map((u) => u.trim().slice(0, 300))
+      .filter((u) => /^https?:\/\//i.test(u))
+      .slice(0, 6);
+  }
 
   if (src.prowlarr && typeof src.prowlarr === 'object') {
     cfg.prowlarr.url = String(src.prowlarr.url || '').replace(/\/+$/, '').slice(0, 200);

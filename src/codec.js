@@ -18,6 +18,53 @@
 const zlib = require('node:zlib');
 const crypto = require('node:crypto');
 
+const { DEFAULTS } = require('./config');
+
+/**
+ * Strip every value that already equals the default.
+ *
+ * The URL only has to carry *decisions*, not the schema. Sending the full
+ * object meant every new provider id lengthened every install URL forever;
+ * sending the delta means adding sources is free. Decoding is unchanged —
+ * `normalize()` refills the defaults on the way back in.
+ */
+function compact(config) {
+  const out = {};
+
+  for (const [key, value] of Object.entries(config)) {
+    if (key === 'v') continue; // implied by the blob prefix
+
+    if (key === 'providers') {
+      const diff = {};
+      for (const [id, on] of Object.entries(value || {})) {
+        if (on !== DEFAULTS.providers[id]) diff[id] = on;
+      }
+      if (Object.keys(diff).length) out.providers = diff;
+      continue;
+    }
+
+    if (key === 'langs' || key === 'addons') {
+      if (Array.isArray(value) && value.length) out[key] = value;
+      continue;
+    }
+
+    if (key === 'prowlarr' || key === 'torznab') {
+      if (value && (value.url || value.key)) out[key] = value;
+      continue;
+    }
+
+    const dflt = DEFAULTS[key];
+    if (Array.isArray(dflt) && Array.isArray(value)) {
+      if (value.join('|') !== dflt.join('|')) out[key] = value;
+      continue;
+    }
+
+    if (value !== dflt) out[key] = value;
+  }
+
+  return out;
+}
+
 function b64url(buf) {
   return Buffer.from(buf)
     .toString('base64')
@@ -39,7 +86,7 @@ function secretKey() {
 }
 
 function encode(config) {
-  const json = Buffer.from(JSON.stringify(config), 'utf8');
+  const json = Buffer.from(JSON.stringify(compact(config)), 'utf8');
   const raw = zlib.deflateRawSync(json, { level: 9 });
   const key = secretKey();
   if (!key) return 'd1' + b64url(raw);
@@ -79,4 +126,4 @@ function decode(blob) {
   }
 }
 
-module.exports = { encode, decode, b64url, unb64url };
+module.exports = { encode, decode, compact, b64url, unb64url };
