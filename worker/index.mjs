@@ -148,7 +148,7 @@ async function fetchUpstream(target, env, init = {}) {
 /** Small GET responses are cached at the edge — public trackers rate limit. */
 const CACHE_TTL = 300;
 
-async function cachedResponse(request, key) {
+async function cachedResponse(key) {
   if (typeof caches === 'undefined') return null;
   try {
     const hit = await caches.default.match(key);
@@ -284,7 +284,7 @@ export default {
     const cacheKey = isGet ? new Request(parsed.toString(), { method: 'GET' }) : null;
 
     if (cacheKey) {
-      const cached = await cachedResponse(request, cacheKey);
+      const cached = await cachedResponse(cacheKey);
       if (cached) return cached;
     }
 

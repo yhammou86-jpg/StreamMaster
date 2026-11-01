@@ -4,6 +4,10 @@ node_modules/
 # Vercel
 .vercel/
 
+# Cloudflare Worker
+.wrangler/
+worker/node_modules/
+
 # Local env
 .env
 .env.local
