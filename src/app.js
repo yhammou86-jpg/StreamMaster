@@ -89,7 +89,7 @@ async function handleStream(query, headers) {
 
   const meta = await resolveMeta(type, rawId);
 
-  const { items, stats } = await gather(cfg, meta, {
+  const { items, stats, unreleased } = await gather(cfg, meta, {
     budget: cfg.providers.prowlarr || cfg.providers.torznab ? 8000 : 6500,
   });
 
@@ -133,7 +133,7 @@ async function handleStream(query, headers) {
       ? `s${String(meta.season).padStart(2, '0')}e${String(meta.episode).padStart(2, '0')}`
       : '';
 
-  const streams = buildStreams(working, cfg, {
+  let streams = buildStreams(working, cfg, {
     base,
     blob: query.c || encode(cfg),
     hint,
@@ -141,11 +141,28 @@ async function handleStream(query, headers) {
     meta,
   });
 
+  // An empty list with no explanation reads as a broken addon. When the reason
+  // is simply "this has not come out yet", say it.
+  if (unreleased && !streams.length) {
+    const label = `${meta.title || 'This title'}${meta.year ? ` (${meta.year})` : ''}`;
+    streams = [
+      {
+        name: 'Hydra',
+        title: 'Not released yet',
+        description:
+          `${label} has not aired or opened yet, so any stream claiming to be it is fake. ` +
+          'Turn off "Hide unreleased" in the setup to see unfiltered results anyway.',
+        externalUrl: `https://www.imdb.com/title/${meta.imdbId}/`,
+      },
+    ];
+  }
+
   return jsonResponse({ streams }, 200, {
     'cache-control': 'public, max-age=60, stale-while-revalidate=300',
     'x-hydra-stats': JSON.stringify({
       found: working.length,
       shown: streams.length,
+      unreleased: !!unreleased,
       providers: stats.perProvider,
       ms: stats.ms,
     }),

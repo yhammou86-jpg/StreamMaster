@@ -126,6 +126,8 @@ Everything below is set through `/configure` and encoded into the addon URL.
 | `max` | Max results returned (5–100) |
 | `minSeed` | Minimum seeders |
 | `noCam` | Drop CAM / TS / screener releases |
+| `strictMatch` | Drop releases that are a different film (default on). Turn off to see everything. |
+| `hideUnreleased` | Drop everything when the film has not opened or the episode has not aired (default on). |
 | `sort` | `quality` · `seeders` · `size` |
 | `cachedOnly` | Only show what the service can serve right now |
 | `uncached` | Allow the service to fetch uncached torrents on play (slow first play) |
@@ -180,6 +182,47 @@ async function resolve(key, hash, hint, opts) -> string    // a direct HTTPS URL
 Providers fail independently. If Cloudflare blocks three of them from your region, the other seven
 still answer and the request still succeeds. Use **Test all sources** in step 2 to see exactly which
 ones work from your deployment.
+
+---
+
+## Why a link played the wrong thing
+
+Most sources search by **title text**, not by ID. A search for "Dune" returns Dune (1984),
+"Dune: Part Two", "Dune Drifter", and a pile of unrelated uploads. If nothing checks the
+result, the addon happily plays whichever one ranked highest. Three filters stop that.
+
+**Exact title and year** (`strictMatch`, on by default). The release name is parsed into a
+title and a year, then compared with what you actually clicked. Token-set equality — not
+substring — because substring is exactly how "Dune" matches "Dune: Part Two". Edition words
+(`Extended`, `IMAX`, `Unrated`) are tolerated; extra words are not.
+
+Two parsing traps this has to survive:
+
+- `Blade.Runner.2049.2017.1080p` — the first four-digit number is part of the **title**, not
+  the year. Title and year are resolved together so `2049` is not eaten.
+- `1917.2019.1080p` — same shape, opposite answer: `1917` *is* the title. A number only counts
+  as the year if it could plausibly be one and is not the only thing left.
+
+**Junk and impossible sizes.** Executables, password dumps and URL spam are dropped. So is a
+"4K" release under 600 MB — that is not a 4K movie, it is a sample or a fake. Series episodes
+get lower floors because they are shorter, and unknown sizes are never rejected.
+
+**Unreleased content** (`hideUnreleased`, on by default). If the film has not opened, or the
+episode has not aired, then *every* result claiming to be it is fake. The scrape is skipped
+entirely and the stream list says why instead of showing CAM rips.
+
+### The one that was silent
+
+EZTV is IMDb-addressable, which should make it the most accurate series source. It was
+returning whatever aired last night instead — for every show.
+
+The API keys its index by the **numeric** part of the IMDb id. Sending `tt0903747` is not
+rejected; it is ignored, and the response is the entire global catalogue — about 1.1 million
+torrents — with a normal `200`. `0903747` filters correctly. A 403 would have been obvious;
+this looked like success, and it is why a series request could play an unrelated show.
+
+The provider now sends the numeric id and rejects any response whose count is implausibly
+large for one show, so a future change in that API fails loudly instead of quietly.
 
 ---
 

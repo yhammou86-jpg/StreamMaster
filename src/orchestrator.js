@@ -10,6 +10,7 @@
 
 const { ALL } = require('./providers');
 const { parseRelease, matchesEpisode } = require('./parse');
+const { isUnreleased } = require('./metadata');
 const { scoreItem, passesFilters, sortItems } = require('./rank');
 const { withTimeout } = require('./http');
 const health = require('./health');
@@ -100,6 +101,16 @@ async function gather(cfg, meta, opts = {}) {
   const started = Date.now();
   const deadline = started + budget;
 
+  // Nothing exists yet, so every result would be fake. Skip the scrape entirely
+  // rather than paying 7 seconds to collect CAMs and mislabelled rips.
+  if (cfg.hideUnreleased !== false && isUnreleased(meta)) {
+    return {
+      items: [],
+      unreleased: true,
+      stats: { providers: 0, raw: 0, unique: 0, perProvider: {}, ms: Date.now() - started },
+    };
+  }
+
   const active = ALL.filter((p) => cfg.providers[p.id] && p.kinds.includes(meta.kind));
   if (!active.length || !meta.title) return { items: [], stats: { providers: 0, raw: 0, ms: 0 } };
 
@@ -120,7 +131,7 @@ async function gather(cfg, meta, opts = {}) {
   }
 
   let items = dedupe(raw);
-  items = items.filter((item) => passesFilters(item, cfg));
+  items = items.filter((item) => passesFilters(item, cfg, meta));
 
   for (const item of items) item.score = scoreItem(item, cfg);
   items = sortItems(items, cfg);

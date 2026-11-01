@@ -214,7 +214,100 @@ test('config endpoint encodes a blob', async () => {
   assert.ok(decode(body.blob));
 });
 
-/* --------------------------------------------------------- diagnostics */
+/* ------------------------------------------------------ release identity */
+console.log('\nrelease identity');
+
+const { releaseTitle, releaseYear, titleMatches } = require('../src/parse');
+
+test('extracts the title out of a release name', () => {
+  assert.strictEqual(releaseTitle('Inception.2010.2160p.UHD.BluRay.REMUX'), 'Inception');
+  assert.strictEqual(releaseTitle('Dune.Part.Two.2024.1080p.WEB-DL.x265'), 'Dune Part Two');
+  assert.strictEqual(releaseTitle('[SubsPlease] Jujutsu Kaisen - 24 (1080p)'), 'Jujutsu Kaisen');
+});
+
+test('a number in the title is not mistaken for the year', () => {
+  // The trap: naive year stripping eats the "2049" and the film then looks wrong.
+  assert.strictEqual(releaseTitle('Blade.Runner.2049.2017.1080p.BluRay'), 'Blade Runner 2049');
+  assert.strictEqual(releaseYear('Blade.Runner.2049.2017.1080p.BluRay'), 2017);
+  assert.strictEqual(releaseTitle('1917.2019.1080p.BluRay'), '1917');
+  assert.strictEqual(releaseYear('1917.2019.1080p.BluRay'), 2019);
+});
+
+test('rejects a sequel when the first film was asked for', () => {
+  assert.strictEqual(titleMatches('Dune', 'Dune'), true);
+  assert.strictEqual(titleMatches('Dune', 'Dune Part Two'), false);
+  assert.strictEqual(titleMatches('Oppenheimer', 'Barbie'), false);
+  // Edition words are not a mismatch.
+  assert.strictEqual(titleMatches('Interstellar', 'Interstellar IMAX'), true);
+  assert.strictEqual(titleMatches('The Matrix', 'Matrix'), true);
+});
+
+test('drops a release whose year belongs to a different film', () => {
+  const meta = { kind: 'movie', title: 'Dune', year: 2021 };
+  const wrong = item('Dune.1984.2160p.BluRay.x265', 500, 8e9);
+  const right = item('Dune.2021.2160p.BluRay.x265', 500, 8e9);
+  assert.strictEqual(passesFilters(wrong, normalize({}), meta), false);
+  assert.strictEqual(passesFilters(right, normalize({}), meta), true);
+});
+
+test('drops junk and implausibly small releases', () => {
+  const meta = { kind: 'movie', title: 'Dune', year: 2021 };
+  const exe = item('Dune.2021.1080p.Setup.exe', 500, 2e9);
+  const tiny = item('Dune.2021.2160p.BluRay.x265', 500, 40e6); // 40 MB "4K"
+  assert.strictEqual(passesFilters(exe, normalize({}), meta), false);
+  assert.strictEqual(passesFilters(tiny, normalize({}), meta), false);
+});
+
+test('strict matching can be turned off', () => {
+  const meta = { kind: 'movie', title: 'Dune', year: 2021 };
+  const wrong = item('Dune.1984.2160p.BluRay.x265', 500, 8e9);
+  assert.strictEqual(passesFilters(wrong, normalize({ strictMatch: false }), meta), true);
+});
+
+/* ------------------------------------------------------------ unreleased */
+console.log('\nunreleased');
+
+const { isUnreleased } = require('../src/metadata');
+const DAY = 24 * 60 * 60 * 1000;
+const now = Date.parse('2026-10-31T00:00:00Z');
+
+test('flags a film that has not opened yet', () => {
+  assert.strictEqual(isUnreleased({ releasedAt: now + 30 * DAY }, now), true);
+  assert.strictEqual(isUnreleased({ releasedAt: now - 30 * DAY }, now), false);
+  assert.strictEqual(isUnreleased({ releasedAt: null }, now), false, 'unknown date is not a reason to hide');
+});
+
+test('an unaired episode wins over the series start date', () => {
+  const meta = { releasedAt: now - 3000 * DAY, episodeReleasedAt: now + 5 * DAY };
+  assert.strictEqual(isUnreleased(meta, now), true);
+});
+
+test('a day of slack absorbs timezone differences', () => {
+  assert.strictEqual(isUnreleased({ releasedAt: now + 6 * 60 * 60 * 1000 }, now), false);
+});
+
+testAsync('skips the scrape entirely for unreleased content', async () => {
+  const { gather } = require('../src/orchestrator');
+  const meta = {
+    kind: 'movie',
+    imdbId: 'tt9999999',
+    title: 'Not Out Yet',
+    year: 2027,
+    season: null,
+    episode: null,
+    genres: [],
+    releasedAt: Date.now() + 90 * DAY,
+  };
+  const res = await gather(normalize({ mode: 'p2p' }), meta);
+  assert.strictEqual(res.unreleased, true);
+  assert.strictEqual(res.items.length, 0);
+  assert.strictEqual(res.stats.providers, 0, 'should not have queried any provider');
+
+  const off = await gather(normalize({ mode: 'p2p', hideUnreleased: false }), meta);
+  assert.ok(off.unreleased === undefined, 'turning the filter off should scrape normally');
+});
+
+/* ------------------------------------------------------------ diagnostics */
 console.log('\ndiagnostics');
 
 const { classify, mostInformative } = require('../src/http');

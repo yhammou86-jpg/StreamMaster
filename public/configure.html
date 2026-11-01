@@ -355,6 +355,17 @@
         <div class="toggle on" id="tgEff"><span class="sw"></span><span class="lbl">Prefer x265 / AV1</span></div>
       </div>
       <div class="row" style="margin-top:9px;gap:9px">
+        <div class="toggle on" id="tgStrict"><span class="sw"></span><span class="lbl">Match the exact title &amp; year</span></div>
+        <div class="toggle on" id="tgUnrel"><span class="sw"></span><span class="lbl">Hide unreleased</span></div>
+      </div>
+      <div class="hint" style="margin-top:8px">
+        Exact matching drops releases that are a different film — a remake, a sequel, or an
+        unrelated result from a text search. <em>Hide unreleased</em> goes further: if the film
+        has not opened, or the episode has not aired, every result claiming to be it is fake,
+        so none are shown. Turn either off if something comes back empty and you would rather
+        see everything and pick yourself.
+      </div>
+      <div class="row" style="margin-top:9px;gap:9px">
         <div class="toggle" id="tgCached"><span class="sw"></span><span class="lbl">Cached only</span></div>
         <div class="toggle" id="tgUncached"><span class="sw"></span><span class="lbl">Allow uncached download</span></div>
       </div>
@@ -468,6 +479,8 @@
     max: 40,
     minSeed: 0,
     noCam: true,
+    strictMatch: true,
+    hideUnreleased: true,
     preferEfficient: true,
     cachedOnly: false,
     uncached: false,
@@ -674,6 +687,8 @@
       max: state.max,
       minSeed: state.minSeed,
       noCam: state.noCam,
+      strictMatch: state.strictMatch,
+      hideUnreleased: state.hideUnreleased,
       preferEfficient: state.preferEfficient,
       cachedOnly: state.cachedOnly,
       uncached: state.uncached,
@@ -849,7 +864,7 @@
     $('sort').addEventListener('change', (e) => { state.sort = e.target.value; scheduleUpdate(); });
     $('style').addEventListener('change', (e) => { state.style = e.target.value; scheduleUpdate(); });
 
-    const toggles = { tgNoCam: 'noCam', tgEff: 'preferEfficient', tgCached: 'cachedOnly', tgUncached: 'uncached' };
+    const toggles = { tgNoCam: 'noCam', tgEff: 'preferEfficient', tgStrict: 'strictMatch', tgUnrel: 'hideUnreleased', tgCached: 'cachedOnly', tgUncached: 'uncached' };
     for (const [id, key] of Object.entries(toggles)) {
       const el = $(id);
       el.addEventListener('click', () => {
@@ -915,6 +930,8 @@
       state.max = cfg.max || state.max;
       state.minSeed = cfg.minSeed || 0;
       state.noCam = cfg.noCam !== false;
+      state.strictMatch = cfg.strictMatch !== false;
+      state.hideUnreleased = cfg.hideUnreleased !== false;
       state.preferEfficient = cfg.preferEfficient !== false;
       state.cachedOnly = !!cfg.cachedOnly;
       state.uncached = !!cfg.uncached;
@@ -931,6 +948,8 @@
       $('proxy').value = state.proxy || '';
       $('tgNoCam').classList.toggle('on', state.noCam);
       $('tgEff').classList.toggle('on', state.preferEfficient);
+      $('tgStrict').classList.toggle('on', state.strictMatch);
+      $('tgUnrel').classList.toggle('on', state.hideUnreleased);
       $('tgCached').classList.toggle('on', state.cachedOnly);
       $('tgUncached').classList.toggle('on', state.uncached);
 

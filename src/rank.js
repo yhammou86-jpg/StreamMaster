@@ -11,6 +11,8 @@
 
 const CACHED_BONUS = 100000;
 
+const { releaseTitle, titleMatches, plausibleSize } = require('./parse');
+
 function seederScore(seeders) {
   if (!seeders || seeders < 0) return 0;
   return Math.min(800, Math.round(Math.log10(1 + seeders) * 220));
@@ -57,7 +59,7 @@ function scoreItem(item, cfg, opts = {}) {
   return score;
 }
 
-function passesFilters(item, cfg) {
+function passesFilters(item, cfg, meta) {
   const p = item.parsed;
 
   if (!p.resolution && !p.isCam) {
@@ -70,6 +72,29 @@ function passesFilters(item, cfg) {
   // NB: cachedOnly is enforced in the stream handler *after* the TorBox probe,
   // because cache state is unknown while scraping.
   if (cfg.minSeed > 0 && item.seeders < cfg.minSeed) return false;
+
+  // Identity checks. Most sources search by title text, so a search for "Dune"
+  // returns Dune (1984), "Dune Drifter" and worse. Without these the addon
+  // happily plays the wrong film — the single biggest source of "this link is
+  // not what I clicked" reports.
+  if (cfg.strictMatch !== false) {
+    if (p.isJunk) return false;
+
+    // Size and title plausibility need to know what was asked for. Without a
+    // media context there is nothing to compare against, so they are skipped.
+    if (meta) {
+      if (!plausibleSize(item.size, p.resolution, meta.kind)) return false;
+
+      if (meta.title) {
+        const name = p.releaseTitle || releaseTitle(item.title);
+        if (!titleMatches(meta.title, name)) return false;
+
+        // Both years known and far apart means a different film entirely —
+        // a remake, a sequel, or an unrelated title that happened to match.
+        if (meta.year && p.year && Math.abs(meta.year - p.year) > 1) return false;
+      }
+    }
+  }
 
   return true;
 }

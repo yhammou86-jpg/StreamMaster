@@ -15,7 +15,7 @@ module.exports = {
   kinds: ['movie', 'series'],
 
   async search(ctx) {
-    const isAnime = ctx.genres.some((g) => /anime/i.test(g));
+    const isAnime = (ctx.genres || []).some((g) => /anime/i.test(g));
     if (!isAnime) return [];
 
     const q = ctx.kind === 'series' ? `${ctx.title} ${String(ctx.episode).padStart(2, '0')}` : ctx.title;
