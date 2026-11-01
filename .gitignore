@@ -27,3 +27,4 @@ Thumbs.db
 .workbuddy-ai/
 promo/*.mp4
 promo/thumbnail-*.png
+.*.json
